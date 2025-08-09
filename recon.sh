@@ -78,7 +78,7 @@ INSTALL[gau]="go install github.com/lc/gau/v2/cmd/gau@latest"
 INSTALL[katana]="go install github.com/projectdiscovery/katana/cmd/katana@latest"
 INSTALL[nuclei]="go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
 
-DOMAIN=""; OUTDIR=""; THREADS=50; RESOLVERS=""; DO_URLS=1; DO_PROBE=1; DO_PORTS=0; DO_NUCLEI=0; KEEP_TEMP=0
+DOMAIN=""; OUTDIR=""; THREADS=50; RESOLVERS=""; DO_URLS=1; DO_PROBE=1; DO_PORTS=0; DO_NUCLEI=0; KEEP_TEMP=0; USE_SUBLIST3R=1
 
 if [ $# -eq 0 ]; then show_help; exit 1; fi
 
@@ -93,6 +93,7 @@ while [ $# -gt 0 ]; do
 		--ports) DO_PORTS=1; shift;;
 		--nuclei) DO_NUCLEI=1; shift;;
 		--full) DO_URLS=1; DO_PROBE=1; DO_PORTS=1; DO_NUCLEI=1; shift;;
+		--no-sublist3r) USE_SUBLIST3R=0; shift;;
 		--keep-temp) KEEP_TEMP=1; shift;;
 		--help|-h) show_help; exit 0;;
 		--version) echo "$VERSION"; exit 0;;
@@ -121,7 +122,11 @@ fi
 enum_subdomains(){
 	log "[1/6] Subdomain enumeration"
 	(need_tool subfinder "${INSTALL[subfinder]}" && subfinder -d "$DOMAIN" -all -silent $RESOLVER_ARG -t "$THREADS" || true) > "$RAW_DIR/subfinder.txt" 2>/dev/null || true
-	(need_tool sublist3r "${INSTALL[sublist3r]}" && sublist3r -d "$DOMAIN" -o "$RAW_DIR/sublist3r.txt" >/dev/null || true)
+		if [ $USE_SUBLIST3R -eq 1 ]; then
+			(need_tool sublist3r "${INSTALL[sublist3r]}" && sublist3r -d "$DOMAIN" -o "$RAW_DIR/sublist3r.txt" 1>/dev/null 2>"$RAW_DIR/sublist3r_errors.log" || true)
+		else
+			: > "$RAW_DIR/sublist3r.txt"
+		fi
 	(need_tool assetfinder "${INSTALL[assetfinder]}" && assetfinder --subs-only "$DOMAIN" || true) > "$RAW_DIR/assetfinder.txt" 2>/dev/null || true
 	if need_tool amass "${INSTALL[amass]}"; then amass enum -passive -d "$DOMAIN" 2>/dev/null | tee "$RAW_DIR/amass.txt" >/dev/null; fi
 	if need_tool shuffledns "${INSTALL[shuffledns]}" && [ -n "$RESOLVERS" ]; then
@@ -130,6 +135,14 @@ enum_subdomains(){
 				shuffledns -d "$DOMAIN" -w "$WORDLIST" -r "$RESOLVERS" -mode bruteforce -t "$THREADS" 2>/dev/null | tee "$RAW_DIR/shuffledns.txt" >/dev/null || true
 		 fi
 	fi
+		# Allow user to supply additional enumeration commands via CUSTOM_ENUM_CMDS (semicolon separated)
+		if [ -n "${CUSTOM_ENUM_CMDS:-}" ]; then
+			IFS=';' read -r -a EXTRA_CMDS <<< "$CUSTOM_ENUM_CMDS"
+			for cmd in "${EXTRA_CMDS[@]}"; do
+				log "Running custom enum: $cmd"
+				bash -c "$cmd" 2>/dev/null | tee -a "$RAW_DIR/custom_enum.txt" >/dev/null || true
+			done
+		fi
 	cat "$RAW_DIR"/*.txt 2>/dev/null | grep -iE "\\.$DOMAIN$" | sort -u > "$OUTDIR/enum/all_subdomains.txt"
 	local count=$(wc -l < "$OUTDIR/enum/all_subdomains.txt" || echo 0)
 	succ "Collected $count unique subdomains"
