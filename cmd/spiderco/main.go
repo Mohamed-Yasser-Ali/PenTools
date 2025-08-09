@@ -302,6 +302,8 @@ log "Recon complete -> $OUTDIR"; succ "Done"
 
 func main() {
 	args := os.Args[1:]
+	
+	// Handle wrapper-only flags first
 	if len(args) == 1 && args[0] == "--dump-script" {
 		fmt.Print(embeddedScript)
 		return
@@ -314,40 +316,50 @@ func main() {
 		fmt.Println("Embedded script written to", args[1])
 		return
 	}
-	// Prefer local recon.sh if present
-	script := "recon.sh"
-	if _, err := os.Stat(script); err != nil {
-		// materialize embedded to temp file
-		tmpFile, err := os.CreateTemp("", "spiderco-*.sh")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "spiderco: failed to create temp file: %v\n", err)
-			os.Exit(1)
-		}
-		defer os.Remove(tmpFile.Name())
-		
-		if _, err := tmpFile.Write([]byte(embeddedScript)); err != nil {
-			fmt.Fprintf(os.Stderr, "spiderco: failed to write script: %v\n", err)
-			os.Exit(1)
-		}
-		if err := tmpFile.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "spiderco: failed to close temp file: %v\n", err)
-			os.Exit(1)
-		}
-		if err := os.Chmod(tmpFile.Name(), 0o755); err != nil {
-			fmt.Fprintf(os.Stderr, "spiderco: failed to make script executable: %v\n", err)
-			os.Exit(1)
-		}
-		script = tmpFile.Name()
+	
+	// Create temp script file
+	tmpFile, err := os.CreateTemp("", "spiderco-*.sh")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "spiderco: failed to create temp file: %v\n", err)
+		os.Exit(1)
 	}
-	cmd := exec.Command("bash", append([]string{script}, args...)...)
+	scriptPath := tmpFile.Name()
+	
+	// Write embedded script
+	if _, err := tmpFile.WriteString(embeddedScript); err != nil {
+		tmpFile.Close()
+		os.Remove(scriptPath)
+		fmt.Fprintf(os.Stderr, "spiderco: failed to write script: %v\n", err)
+		os.Exit(1)
+	}
+	
+	// Close and make executable
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(scriptPath)
+		fmt.Fprintf(os.Stderr, "spiderco: failed to close temp file: %v\n", err)
+		os.Exit(1)
+	}
+	
+	if err := os.Chmod(scriptPath, 0o755); err != nil {
+		os.Remove(scriptPath)
+		fmt.Fprintf(os.Stderr, "spiderco: failed to make script executable: %v\n", err)
+		os.Exit(1)
+	}
+	
+	// Cleanup temp file when done
+	defer os.Remove(scriptPath)
+	
+	// Execute bash script with args
+	cmd := exec.Command("bash", append([]string{scriptPath}, args...)...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+	
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			os.Exit(exitErr.ExitCode())
 		}
-		fmt.Fprintf(os.Stderr, "spiderco: %v\n", err)
+		fmt.Fprintf(os.Stderr, "spiderco: execution failed: %v\n", err)
 		os.Exit(1)
 	}
 }
