@@ -100,7 +100,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$DOMAIN" ]; then err "Domain is required (-d)."; exit 1; fi
-if [ -z "$OUTDIR" ]; then OUTDIR="recon-$DOMAIN"; fi
+if [ -z "$OUTDIR" ]; then OUTDIR="$DOMAIN"; fi
 
 RAW_DIR="$OUTDIR/enum/raw"
 WEB_DIR="$OUTDIR/web"
