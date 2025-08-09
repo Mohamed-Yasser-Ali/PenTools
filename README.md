@@ -3,7 +3,7 @@
 Single-script (bash) reconnaissance workflow, installable wrapper via `spiderco` Go binary.
 
 ## Features
-- Passive + optional brute-force subdomain enumeration (subfinder, assetfinder, amass, shuffledns)
+- Passive + optional brute-force subdomain enumeration (subfinder, assetfinder, amass, shuffledns, **crt.sh**)
 - DNS resolution (dnsx with graceful fallback)
 - HTTP probing (httpx) with tech + title + status + IP + CDN detection
 - URL collection (waybackurls, gau, waymore, katana) and consolidation
@@ -20,6 +20,15 @@ go install github.com/Mohamed-Yasser-Ali/PenTools/cmd/spiderco@latest
 Ensure `$GOPATH/bin` (or `$HOME/go/bin`) is in PATH, then:
 ```bash
 spiderco -d target.com --full
+```
+
+## SpiderCo Wrapper Options
+```bash
+# Dump embedded script to see full source
+spiderco --dump-script
+
+# Write embedded script to file (useful for customization)
+spiderco --write-script recon.sh
 ```
 
 Or clone and run script directly:
@@ -59,6 +68,15 @@ spiderco -d target.com --no-urls --no-probe
 # Only add ports + nuclei later (if you already enumerated)
 spiderco -d target.com --ports --nuclei
 ```
+
+## Enumeration Sources
+The script automatically queries multiple subdomain sources:
+- **subfinder**: Passive DNS aggregation
+- **assetfinder**: Passive subdomain discovery 
+- **amass**: OSINT-based enumeration (if installed)
+- **crt.sh**: Certificate transparency logs (requires curl + jq)
+- **shuffledns**: DNS bruteforce (requires custom wordlist via `WORDLIST` env var)
+- **Custom commands**: Via `CUSTOM_ENUM_CMDS` environment variable
 
 ## Flags Summary
 | Flag | Description |
