@@ -320,15 +320,27 @@ func main() {
 	// Prefer local recon.sh if present
 	script := "recon.sh"
 	if _, err := os.Stat(script); err != nil {
-		// materialize embedded
-		cacheDir, _ := os.UserCacheDir()
-		if cacheDir == "" { cacheDir = os.TempDir() }
-		sum := sha256.Sum256([]byte(embeddedScript))
-		scriptPath := filepath.Join(cacheDir, "spiderco-"+hex.EncodeToString(sum[:8])+".sh")
-		if _, err2 := os.Stat(scriptPath); err2 != nil {
-			_ = os.WriteFile(scriptPath, []byte(embeddedScript), 0o755)
+		// materialize embedded to temp file
+		tmpFile, err := os.CreateTemp("", "spiderco-*.sh")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "spiderco: failed to create temp file: %v\n", err)
+			os.Exit(1)
 		}
-		script = scriptPath
+		defer os.Remove(tmpFile.Name())
+		
+		if _, err := tmpFile.Write([]byte(embeddedScript)); err != nil {
+			fmt.Fprintf(os.Stderr, "spiderco: failed to write script: %v\n", err)
+			os.Exit(1)
+		}
+		if err := tmpFile.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "spiderco: failed to close temp file: %v\n", err)
+			os.Exit(1)
+		}
+		if err := os.Chmod(tmpFile.Name(), 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "spiderco: failed to make script executable: %v\n", err)
+			os.Exit(1)
+		}
+		script = tmpFile.Name()
 	}
 	cmd := exec.Command("bash", append([]string{script}, args...)...)
 	cmd.Stdout = os.Stdout
