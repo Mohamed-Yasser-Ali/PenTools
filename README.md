@@ -1,6 +1,6 @@
-# Bug Bounty Recon Toolkit
+# PenTools - SpiderCo Recon Toolkit
 
-Single-script reconnaissance workflow driven by `recon.sh`.
+Single-script (bash) reconnaissance workflow, installable wrapper via `spiderco` Go binary.
 
 ## Features
 - Passive + optional brute-force subdomain enumeration (subfinder, assetfinder, amass, shuffledns)
@@ -13,35 +13,51 @@ Single-script reconnaissance workflow driven by `recon.sh`.
 - Dynamic flag detection for mixed tool versions
 - Colored logging & modular steps
 
+## Install (Go users)
+```bash
+go install github.com/Mohamed-Yasser-Ali/PenTools/cmd/spiderco@latest
+```
+Ensure `$GOPATH/bin` (or `$HOME/go/bin`) is in PATH, then:
+```bash
+spiderco -d target.com --full
+```
+
+Or clone and run script directly:
+```bash
+git clone https://github.com/Mohamed-Yasser-Ali/PenTools.git
+cd PenTools
+./recon.sh -d target.com --full
+```
+
 ## Quick Start
 ```bash
 # Full recon (enum + resolve + probe + urls + ports + nuclei)
-./recon.sh -d target.com --full
+spiderco -d target.com --full
 
 # Faster (no ports / nuclei, still enum + probe + urls)
-./recon.sh -d target.com
+spiderco -d target.com
 
 # Full with more threads + keep temp files
-./recon.sh -d target.com --full -t 100 --keep-temp
+spiderco -d target.com --full -t 100 --keep-temp
 
 # Use curated resolvers list
-./recon.sh -d target.com --full --resolvers resolvers.txt
+spiderco -d target.com --full --resolvers resolvers.txt
 
 # Custom output directory
-./recon.sh -d target.com --full -o recon-target
+spiderco -d target.com --full -o recon-target
 
 # Supply brute-force wordlist (used by shuffledns if available)
-WORDLIST=wordlist.txt ./recon.sh -d target.com --full --resolvers resolvers.txt
+WORDLIST=wordlist.txt spiderco -d target.com --full --resolvers resolvers.txt
 
 # Add extra enumeration commands (semicolon separated)
 CUSTOM_ENUM_CMDS="crtsh.py -d target.com;another_enum_tool target.com" \
-  ./recon.sh -d target.com --full
+  spiderco -d target.com --full
 
 # Skip URL collection and probing (just enumerate + resolve)
-./recon.sh -d target.com --no-urls --no-probe
+spiderco -d target.com --no-urls --no-probe
 
 # Only add ports + nuclei later (if you already enumerated)
-./recon.sh -d target.com --ports --nuclei
+spiderco -d target.com --ports --nuclei
 ```
 
 ## Flags Summary
