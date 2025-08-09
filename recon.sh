@@ -4,7 +4,7 @@
 # Author: Mohamed-Yasser-Ali (automated assistant enhancement)
 #
 # Core workflow (all modular & optional):
-#   1. Subdomain enumeration (passive + optional brute)
+#   1. Subdomain enumeration (passive + optional brute) (subfinder/assetfinder/amass/shuffledns)
 #   2. Resolution (dnsx) & filtering
 #   3. Probing (httpx) with tech detection & metadata
 #   4. URL archive collection (waybackurls, gau, waymore) / optional crawling (katana)
@@ -65,7 +65,6 @@ need_tool(){
 # Catalog of optional tools & suggested install commands
 declare -A INSTALL
 INSTALL[subfinder]="go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
-INSTALL[sublist3r]="pip install sublist3r"
 INSTALL[assetfinder]="go install github.com/tomnomnom/assetfinder@latest"
 INSTALL[amass]="snap install amass || go install github.com/owasp-amass/amass/v4/...@latest"
 INSTALL[dnsx]="go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
@@ -78,7 +77,7 @@ INSTALL[gau]="go install github.com/lc/gau/v2/cmd/gau@latest"
 INSTALL[katana]="go install github.com/projectdiscovery/katana/cmd/katana@latest"
 INSTALL[nuclei]="go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
 
-DOMAIN=""; OUTDIR=""; THREADS=50; RESOLVERS=""; DO_URLS=1; DO_PROBE=1; DO_PORTS=0; DO_NUCLEI=0; KEEP_TEMP=0; USE_SUBLIST3R=1
+DOMAIN=""; OUTDIR=""; THREADS=50; RESOLVERS=""; DO_URLS=1; DO_PROBE=1; DO_PORTS=0; DO_NUCLEI=0; KEEP_TEMP=0
 
 if [ $# -eq 0 ]; then show_help; exit 1; fi
 
@@ -93,7 +92,6 @@ while [ $# -gt 0 ]; do
 		--ports) DO_PORTS=1; shift;;
 		--nuclei) DO_NUCLEI=1; shift;;
 		--full) DO_URLS=1; DO_PROBE=1; DO_PORTS=1; DO_NUCLEI=1; shift;;
-		--no-sublist3r) USE_SUBLIST3R=0; shift;;
 		--keep-temp) KEEP_TEMP=1; shift;;
 		--help|-h) show_help; exit 0;;
 		--version) echo "$VERSION"; exit 0;;
@@ -122,12 +120,7 @@ fi
 enum_subdomains(){
 	log "[1/6] Subdomain enumeration"
 	(need_tool subfinder "${INSTALL[subfinder]}" && subfinder -d "$DOMAIN" -all -silent $RESOLVER_ARG -t "$THREADS" || true) > "$RAW_DIR/subfinder.txt" 2>/dev/null || true
-		if [ $USE_SUBLIST3R -eq 1 ]; then
-			(need_tool sublist3r "${INSTALL[sublist3r]}" && sublist3r -d "$DOMAIN" -o "$RAW_DIR/sublist3r.txt" 1>/dev/null 2>"$RAW_DIR/sublist3r_errors.log" || true)
-		else
-			: > "$RAW_DIR/sublist3r.txt"
-		fi
-	(need_tool assetfinder "${INSTALL[assetfinder]}" && assetfinder --subs-only "$DOMAIN" || true) > "$RAW_DIR/assetfinder.txt" 2>/dev/null || true
+		(need_tool assetfinder "${INSTALL[assetfinder]}" && assetfinder --subs-only "$DOMAIN" || true) > "$RAW_DIR/assetfinder.txt" 2>/dev/null || true
 	if need_tool amass "${INSTALL[amass]}"; then amass enum -passive -d "$DOMAIN" 2>/dev/null | tee "$RAW_DIR/amass.txt" >/dev/null; fi
 	if need_tool shuffledns "${INSTALL[shuffledns]}" && [ -n "$RESOLVERS" ]; then
 		 warn "Running shuffledns with resolvers (wordlist required for brute). Skipping if no wordlist env WORDLIST."
