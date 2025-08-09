@@ -155,7 +155,11 @@ enum_subdomains(){
 			bash -c "$cmd" 2>/dev/null | tee -a "$RAW_DIR/custom_enum.txt" >/dev/null || true
 		done
 	fi
-	cat "$RAW_DIR"/*.txt 2>/dev/null | grep -iE "\\.$DOMAIN$" | sort -u > "$OUTDIR/enum/all_subdomains.txt"
+	# Only include valid subdomains (exclude lines with spaces, notes, IPs, or records)
+	cat "$RAW_DIR"/*.txt 2>/dev/null \
+		| grep -iE "^[a-z0-9._-]+\\.$DOMAIN$" \
+		| grep -vE ' |note:|->|^[0-9.]+$|^[0-9a-f:]+$' \
+		| sort -u > "$OUTDIR/enum/all_subdomains.txt"
 	local count=$(wc -l < "$OUTDIR/enum/all_subdomains.txt" || echo 0)
 	succ "Collected $count unique subdomains"
 }

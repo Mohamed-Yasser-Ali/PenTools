@@ -101,11 +101,12 @@ The script automatically queries multiple subdomain sources:
 | CUSTOM_ENUM_CMDS | Extra enum commands separated by `;` (each should output subdomains) |
 
 ## Output Structure
+
 ```
 <outdir>/
   enum/
     raw/              # Raw tool outputs
-    all_subdomains.txt
+    all_subdomains.txt  # Only valid subdomains (no notes, IPs, or records)
     resolved.txt
   web/
     httpx_full.txt
@@ -120,6 +121,8 @@ The script automatically queries multiple subdomain sources:
     ports.txt
     nuclei.txt
 ```
+
+**Note:** `all_subdomains.txt` is now strictly filtered to include only valid subdomain names, excluding tool notes, IPs, and other records.
 
 ## Tool Installation Cheat Sheet
 (Install only what you need; Go bin path must be in $PATH.)
