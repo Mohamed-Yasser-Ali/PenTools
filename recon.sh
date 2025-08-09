@@ -42,7 +42,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 
 COLOR_RED="\033[31m"; COLOR_GREEN="\033[32m"; COLOR_YELLOW="\033[33m"; COLOR_BLUE="\033[34m"; COLOR_RESET="\033[0m"
 
@@ -120,7 +120,8 @@ log "Output: $OUTDIR"
 
 RESOLVER_ARG=""
 if [ -n "$RESOLVERS" ] && [ -f "$RESOLVERS" ]; then
-	RESOLVER_ARG="-r $RESOLVERS"
+	# We'll decide the actual flag inside resolve_subdomains after detecting dnsx capabilities
+	RESOLVER_ARG="$RESOLVERS"
 	log "Using custom resolvers file: $RESOLVERS"
 fi
 
@@ -160,8 +161,21 @@ resolve_subdomains(){
 			DNSX_FLAGS+=" -threads $THREADS"
 		fi
 		has_flag dnsx -retries && DNSX_FLAGS+=" -retries 2"
+		# Resolver flag selection
+		RESOLVER_FLAG=""
+		if [ -n "$RESOLVER_ARG" ]; then
+			if has_flag dnsx -r; then
+				RESOLVER_FLAG=" -r $RESOLVER_ARG"
+			elif has_flag dnsx -resolver; then
+				RESOLVER_FLAG=" -resolver $RESOLVER_ARG"
+			elif has_flag dnsx -resolvers; then
+				RESOLVER_FLAG=" -resolvers $RESOLVER_ARG"
+			else
+				warn "dnsx does not support resolver flag on this version; continuing without custom resolvers"
+			fi
+		fi
 		# First attempt with detected flags
-		if ! dnsx $DNSX_FLAGS -l "$OUTDIR/enum/all_subdomains.txt" $RESOLVER_ARG -o "$OUTDIR/enum/resolved.txt" 2>/dev/null; then
+		if ! dnsx $DNSX_FLAGS -l "$OUTDIR/enum/all_subdomains.txt" $RESOLVER_FLAG -o "$OUTDIR/enum/resolved.txt" 2>/dev/null; then
 			warn "dnsx attempt with flags failed; trying minimal invocation"
 			if ! dnsx -l "$OUTDIR/enum/all_subdomains.txt" -o "$OUTDIR/enum/resolved.txt" 2>/dev/null; then
 				warn "dnsx minimal invocation failed"
@@ -196,7 +210,11 @@ probe_http(){
 		for f in -follow-redirects -status-code -title -tech-detect -ip -websocket -cdn -content-length; do
 			has_flag httpx "$f" && HTTPX_FLAGS+=" $f"
 		done
-		has_flag httpx -rl && HTTPX_FLAGS+=" -rl 100"
+		if has_flag httpx -rl; then
+			HTTPX_FLAGS+=" -rl 100"
+		elif has_flag httpx -rate; then
+			HTTPX_FLAGS+=" -rate 100"
+		fi
 		if ! httpx -l "$OUTDIR/enum/resolved.txt" $HTTPX_FLAGS -o "$WEB_DIR/httpx_full.txt" 2>/dev/null; then
 			warn "httpx attempt with detected flags failed; trying minimal run"
 			httpx -l "$OUTDIR/enum/resolved.txt" -o "$WEB_DIR/httpx_full.txt" 2>/dev/null || true
