@@ -42,7 +42,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-VERSION="1.3.0"
+VERSION="1.3.1"
 
 COLOR_RED="\033[31m"; COLOR_GREEN="\033[32m"; COLOR_YELLOW="\033[33m"; COLOR_BLUE="\033[34m"; COLOR_RESET="\033[0m"
 
@@ -83,6 +83,8 @@ INSTALL[waybackurls]="go install github.com/tomnomnom/waybackurls@latest"
 INSTALL[gau]="go install github.com/lc/gau/v2/cmd/gau@latest"
 INSTALL[katana]="go install github.com/projectdiscovery/katana/cmd/katana@latest"
 INSTALL[nuclei]="go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
+INSTALL[curl]="(preinstalled on most systems)"
+INSTALL[jq]="sudo apt install -y jq || brew install jq || choco install jq"
 
 DOMAIN=""; OUTDIR=""; THREADS=50; RESOLVERS=""; DO_URLS=1; DO_PROBE=1; DO_PORTS=0; DO_NUCLEI=0; KEEP_TEMP=0
 
@@ -129,6 +131,20 @@ enum_subdomains(){
 	log "[1/6] Subdomain enumeration"
 	(need_tool subfinder "${INSTALL[subfinder]}" && subfinder -d "$DOMAIN" -all -silent $RESOLVER_ARG -t "$THREADS" || true) > "$RAW_DIR/subfinder.txt" 2>/dev/null || true
 		(need_tool assetfinder "${INSTALL[assetfinder]}" && assetfinder --subs-only "$DOMAIN" || true) > "$RAW_DIR/assetfinder.txt" 2>/dev/null || true
+		# crt.sh certificate transparency enumeration
+		if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+			log "Querying crt.sh"
+			(
+				curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" \
+				| jq -r '.[].name_value' 2>/dev/null \
+				| tr '\r' '\n' | tr ' ' '\n' | tr ',' '\n' \
+				| sed 's/\\*\\.//g' | sed 's/^\.//' \
+				| grep -iE "\\.$DOMAIN$" | sort -u
+			) > "$RAW_DIR/crtsh.txt" || true
+		else
+			warn "Skipping crt.sh (missing curl or jq)"
+			: > "$RAW_DIR/crtsh.txt"
+		fi
 	if need_tool amass "${INSTALL[amass]}"; then amass enum -passive -d "$DOMAIN" 2>/dev/null | tee "$RAW_DIR/amass.txt" >/dev/null; fi
 	if need_tool shuffledns "${INSTALL[shuffledns]}" && [ -n "$RESOLVERS" ]; then
 		 warn "Running shuffledns with resolvers (wordlist required for brute). Skipping if no wordlist env WORDLIST."
