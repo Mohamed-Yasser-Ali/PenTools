@@ -42,7 +42,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-VERSION="1.1.0"
+VERSION="1.2.0"
 
 COLOR_RED="\033[31m"; COLOR_GREEN="\033[32m"; COLOR_YELLOW="\033[33m"; COLOR_BLUE="\033[34m"; COLOR_RESET="\033[0m"
 
@@ -143,13 +143,26 @@ enum_subdomains(){
 
 resolve_subdomains(){
 	log "[2/6] DNS resolution"
+	# Build dnsx command with only supported flags (older versions may lack -retries)
 	if need_tool dnsx "${INSTALL[dnsx]}"; then
-		 dnsx -silent -retries 2 -t "$THREADS" -l "$OUTDIR/enum/all_subdomains.txt" $RESOLVER_ARG -o "$OUTDIR/enum/resolved.txt" 2>/dev/null || true
-	else
-		 warn "dnsx missing; falling back to naive ping resolution (slow)";
-		 while read -r sub; do
-			 if host "$sub" &>/dev/null; then echo "$sub"; fi
-		 done < "$OUTDIR/enum/all_subdomains.txt" > "$OUTDIR/enum/resolved.txt"
+		DNSX_FLAGS="-silent -t $THREADS"
+		if dnsx -h 2>&1 | grep -qw -- '-retries'; then
+			DNSX_FLAGS+=" -retries 2"
+		fi
+		# Some older versions require -l before list and -o for output (kept) ; run and ignore failures
+		if ! dnsx $DNSX_FLAGS -l "$OUTDIR/enum/all_subdomains.txt" $RESOLVER_ARG -o "$OUTDIR/enum/resolved.txt" 2>/dev/null; then
+			warn "dnsx failed; falling back to simple resolution"
+		fi
+	fi
+	if [ ! -s "$OUTDIR/enum/resolved.txt" ]; then
+		warn "Using fallback resolver loop (slower)"
+		while read -r sub; do
+			if command -v host >/dev/null 2>&1; then
+				if host "$sub" >/dev/null 2>&1; then echo "$sub"; fi
+			elif command -v dig >/dev/null 2>&1; then
+				if dig +short "$sub" | grep -qE '^[0-9]'; then echo "$sub"; fi
+			fi
+		done < "$OUTDIR/enum/all_subdomains.txt" > "$OUTDIR/enum/resolved.txt" 2>/dev/null || true
 	fi
 	local count=$(wc -l < "$OUTDIR/enum/resolved.txt" || echo 0)
 	succ "Resolved $count subdomains"
@@ -159,9 +172,18 @@ probe_http(){
 	[ $DO_PROBE -eq 1 ] || { warn "Skipping HTTP probing"; return; }
 	log "[3/6] HTTP probing"
 	if need_tool httpx "${INSTALL[httpx]}"; then
-		httpx -l "$OUTDIR/enum/resolved.txt" -silent -threads "$THREADS" -follow-redirects -status-code -title -tech-detect -ip -websocket -cdn -content-length -o "$WEB_DIR/httpx_full.txt" 2>/dev/null || true
-		awk '{print $1}' "$WEB_DIR/httpx_full.txt" | sort -u > "$WEB_DIR/alive_hosts.txt"
-		succ "HTTP alive hosts: $(wc -l < "$WEB_DIR/alive_hosts.txt" || echo 0)"
+		HTTPX_FLAGS="-silent -threads $THREADS"
+		for f in -follow-redirects -status-code -title -tech-detect -ip -websocket -cdn -content-length; do
+			if httpx -h 2>&1 | grep -qw -- "$f"; then HTTPX_FLAGS+=" $f"; fi
+		done
+		# Older versions use -rl for rate limit; ignore if unsupported
+		if httpx -h 2>&1 | grep -qw -- '-rl'; then HTTPX_FLAGS+=" -rl 100"; fi
+		httpx -l "$OUTDIR/enum/resolved.txt" $HTTPX_FLAGS -o "$WEB_DIR/httpx_full.txt" 2>/dev/null || true
+		awk '{print $1}' "$WEB_DIR/httpx_full.txt" | sort -u > "$WEB_DIR/alive_hosts.txt" || true
+		if [ ! -s "$WEB_DIR/alive_hosts.txt" ]; then
+			warn "No alive hosts detected (possible network block or unsupported flags)"
+		fi
+		succ "HTTP alive hosts: $(wc -l < "$WEB_DIR/alive_hosts.txt" 2>/dev/null || echo 0)"
 	else
 		warn "httpx not installed; skipping probing"
 	fi
