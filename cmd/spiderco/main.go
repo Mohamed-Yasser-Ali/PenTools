@@ -1,12 +1,9 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 )
 
 // FULL embedded recon.sh content (version 1.3.1) for standalone usage.
