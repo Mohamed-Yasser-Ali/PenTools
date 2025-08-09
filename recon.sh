@@ -51,6 +51,13 @@ warn() { printf "%b[%s]%b %s\n" "$COLOR_YELLOW" "WARN" "$COLOR_RESET" "$1"; }
 err()  { printf "%b[%s]%b %s\n" "$COLOR_RED" "ERR" "$COLOR_RESET" "$1"; }
 succ() { printf "%b[%s]%b %s\n" "$COLOR_GREEN" "DONE" "$COLOR_RESET" "$1"; }
 
+has_flag(){
+	# Usage: has_flag <tool> <flag>
+	local tool="$1" flag="$2"
+	command -v "$tool" >/dev/null 2>&1 || return 1
+	"$tool" -h 2>&1 | grep -qw -- "$flag"
+}
+
 show_help(){ sed -n '1,/^set -Eeuo/p' "$0" | sed 's/^# \{0,1\}//' | sed '/^$/q'; }
 
 need_tool(){
@@ -143,15 +150,22 @@ enum_subdomains(){
 
 resolve_subdomains(){
 	log "[2/6] DNS resolution"
-	# Build dnsx command with only supported flags (older versions may lack -retries)
 	if need_tool dnsx "${INSTALL[dnsx]}"; then
-		DNSX_FLAGS="-silent -t $THREADS"
-		if dnsx -h 2>&1 | grep -qw -- '-retries'; then
-			DNSX_FLAGS+=" -retries 2"
+		DNSX_FLAGS=""
+		# Add flags only if supported
+		has_flag dnsx -silent && DNSX_FLAGS+=" -silent"
+		if has_flag dnsx -t; then
+			DNSX_FLAGS+=" -t $THREADS"
+		elif has_flag dnsx -threads; then
+			DNSX_FLAGS+=" -threads $THREADS"
 		fi
-		# Some older versions require -l before list and -o for output (kept) ; run and ignore failures
+		has_flag dnsx -retries && DNSX_FLAGS+=" -retries 2"
+		# First attempt with detected flags
 		if ! dnsx $DNSX_FLAGS -l "$OUTDIR/enum/all_subdomains.txt" $RESOLVER_ARG -o "$OUTDIR/enum/resolved.txt" 2>/dev/null; then
-			warn "dnsx failed; falling back to simple resolution"
+			warn "dnsx attempt with flags failed; trying minimal invocation"
+			if ! dnsx -l "$OUTDIR/enum/all_subdomains.txt" -o "$OUTDIR/enum/resolved.txt" 2>/dev/null; then
+				warn "dnsx minimal invocation failed"
+			fi
 		fi
 	fi
 	if [ ! -s "$OUTDIR/enum/resolved.txt" ]; then
@@ -172,13 +186,21 @@ probe_http(){
 	[ $DO_PROBE -eq 1 ] || { warn "Skipping HTTP probing"; return; }
 	log "[3/6] HTTP probing"
 	if need_tool httpx "${INSTALL[httpx]}"; then
-		HTTPX_FLAGS="-silent -threads $THREADS"
+		HTTPX_FLAGS=""
+		has_flag httpx -silent && HTTPX_FLAGS+=" -silent"
+		if has_flag httpx -threads; then
+			HTTPX_FLAGS+=" -threads $THREADS"
+		elif has_flag httpx -t; then
+			HTTPX_FLAGS+=" -t $THREADS"
+		fi
 		for f in -follow-redirects -status-code -title -tech-detect -ip -websocket -cdn -content-length; do
-			if httpx -h 2>&1 | grep -qw -- "$f"; then HTTPX_FLAGS+=" $f"; fi
+			has_flag httpx "$f" && HTTPX_FLAGS+=" $f"
 		done
-		# Older versions use -rl for rate limit; ignore if unsupported
-		if httpx -h 2>&1 | grep -qw -- '-rl'; then HTTPX_FLAGS+=" -rl 100"; fi
-		httpx -l "$OUTDIR/enum/resolved.txt" $HTTPX_FLAGS -o "$WEB_DIR/httpx_full.txt" 2>/dev/null || true
+		has_flag httpx -rl && HTTPX_FLAGS+=" -rl 100"
+		if ! httpx -l "$OUTDIR/enum/resolved.txt" $HTTPX_FLAGS -o "$WEB_DIR/httpx_full.txt" 2>/dev/null; then
+			warn "httpx attempt with detected flags failed; trying minimal run"
+			httpx -l "$OUTDIR/enum/resolved.txt" -o "$WEB_DIR/httpx_full.txt" 2>/dev/null || true
+		fi
 		awk '{print $1}' "$WEB_DIR/httpx_full.txt" | sort -u > "$WEB_DIR/alive_hosts.txt" || true
 		if [ ! -s "$WEB_DIR/alive_hosts.txt" ]; then
 			warn "No alive hosts detected (possible network block or unsupported flags)"
