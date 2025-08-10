@@ -212,23 +212,10 @@ probe_http(){
 	[ $DO_PROBE -eq 1 ] || { warn "Skipping HTTP probing"; return; }
 	log "[3/6] HTTP probing"
 	if need_tool httpx "${INSTALL[httpx]}"; then
-		HTTPX_FLAGS=""
-		has_flag httpx -silent && HTTPX_FLAGS+=" -silent"
-		if has_flag httpx -threads; then
-			HTTPX_FLAGS+=" -threads $THREADS"
-		elif has_flag httpx -t; then
-			HTTPX_FLAGS+=" -t $THREADS"
-		fi
-		for f in -follow-redirects -status-code -title -tech-detect -ip -websocket -cdn -content-length; do
-			has_flag httpx "$f" && HTTPX_FLAGS+=" $f"
-		done
-		if has_flag httpx -rl; then
-			HTTPX_FLAGS+=" -rl 100"
-		elif has_flag httpx -rate; then
-			HTTPX_FLAGS+=" -rate 100"
-		fi
+		# Use only the most widely supported flags
+		HTTPX_FLAGS="-status-code -title -tech-detect -ip -content-length"
 		if ! httpx -l "$OUTDIR/enum/resolved.txt" $HTTPX_FLAGS -o "$WEB_DIR/httpx_full.txt" 2>/dev/null; then
-			warn "httpx attempt with detected flags failed; trying minimal run"
+			warn "httpx failed; trying minimal run"
 			httpx -l "$OUTDIR/enum/resolved.txt" -o "$WEB_DIR/httpx_full.txt" 2>/dev/null || true
 		fi
 		awk '{print $1}' "$WEB_DIR/httpx_full.txt" | sort -u > "$WEB_DIR/alive_hosts.txt" || true
