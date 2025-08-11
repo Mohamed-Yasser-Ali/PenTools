@@ -212,9 +212,9 @@ probe_http(){
 	[ $DO_PROBE -eq 1 ] || { warn "Skipping HTTP probing"; return; }
 	log "[3/6] HTTP probing"
 	if need_tool httpx "${INSTALL[httpx]}"; then
-		# Use only the most widely supported flags
-		HTTPX_FLAGS="-status-code -title -tech-detect -ip -content-length"
-		if ! httpx -l "$OUTDIR/enum/resolved.txt" $HTTPX_FLAGS -o "$WEB_DIR/httpx_full.txt" 2>/dev/null; then
+		# Use only the most widely supported flags, as an array
+		HTTPX_FLAGS=(-status-code -title -tech-detect -ip -content-length)
+		if ! httpx -l "$OUTDIR/enum/resolved.txt" "${HTTPX_FLAGS[@]}" -o "$WEB_DIR/httpx_full.txt" 2>/dev/null; then
 			warn "httpx failed; trying minimal run"
 			httpx -l "$OUTDIR/enum/resolved.txt" -o "$WEB_DIR/httpx_full.txt" 2>/dev/null || true
 		fi
