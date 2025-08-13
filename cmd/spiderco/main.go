@@ -319,4 +319,3 @@ func main() {
         fmt.Fprintf(os.Stderr, "spiderco: execution failed: %v\n", err)
         os.Exit(1)
     }
-}
