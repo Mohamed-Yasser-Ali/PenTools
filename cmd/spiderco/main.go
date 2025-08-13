@@ -312,6 +312,7 @@ func main() {
     cmd.Stderr = os.Stderr
     cmd.Stdin = os.Stdin
     
+    // ...existing code...
     if err := cmd.Run(); err != nil {
         if exitErr, ok := err.(*exec.ExitError); ok {
             os.Exit(exitErr.ExitCode())
@@ -319,3 +320,4 @@ func main() {
         fmt.Fprintf(os.Stderr, "spiderco: execution failed: %v\n", err)
         os.Exit(1)
     }
+}
