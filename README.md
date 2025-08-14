@@ -1,162 +1,180 @@
-# PenTools - SpiderCo Recon Toolkit
+# SpiderCo - Advanced Reconnaissance Tool
 
-Single-script (bash) reconnaissance workflow, installable wrapper via `spiderco` Go binary.
+[![Go Install](https://img.shields.io/badge/go-install-blue.svg)](https://github.com/Mohamed-Yasser-Ali/PenTools)
+[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](https://github.com/Mohamed-Yasser-Ali/PenTools/releases)
 
-## Features
-- Passive + optional brute-force subdomain enumeration (subfinder, assetfinder, amass, shuffledns, **crt.sh**)
-- DNS resolution (dnsx with graceful fallback)
-- HTTP probing (httpx) with tech + title + status + IP + CDN detection
-- URL collection (waybackurls, gau, waymore, katana) and consolidation
-- Optional port scan (naabu)
-- Optional nuclei scanning
-- Custom enumeration command hook (`CUSTOM_ENUM_CMDS`)
-- Dynamic flag detection for mixed tool versions
-- Colored logging & modular steps
+SpiderCo is a comprehensive reconnaissance tool designed for bug bounty hunters and penetration testers. It automates the process of subdomain enumeration, DNS resolution, HTTP probing, URL collection, port scanning, and vulnerability detection.
 
-## Install (Go users)
+## 🚀 Installation
+
+### Quick Install (Recommended)
 ```bash
 go install github.com/Mohamed-Yasser-Ali/PenTools/cmd/spiderco@latest
 ```
-Ensure `$GOPATH/bin` (or `$HOME/go/bin`) is in PATH, then:
-```bash
-spiderco -d target.com --full
-```
 
-## SpiderCo Wrapper Options
-```bash
-# Dump embedded script to see full source
-spiderco --dump-script
-
-# Write embedded script to file (useful for customization)
-spiderco --write-script recon.sh
-```
-
-Or clone and run script directly:
+### Manual Build
 ```bash
 git clone https://github.com/Mohamed-Yasser-Ali/PenTools.git
 cd PenTools
-./recon.sh -d target.com --full
+go build ./cmd/spiderco
 ```
 
-## Quick Start
+## 🛠️ Prerequisites
+
+SpiderCo leverages several popular tools. Install them as needed:
+
 ```bash
-# Full recon (enum + resolve + probe + urls + ports + nuclei)
-spiderco -d target.com --full
-
-# Faster (no ports / nuclei, still enum + probe + urls)
-spiderco -d target.com
-
-# Full with more threads + keep temp files
-spiderco -d target.com --full -t 100 --keep-temp
-
-# Use curated resolvers list
-spiderco -d target.com --full --resolvers resolvers.txt
-
-# Custom output directory
-spiderco -d target.com --full -o recon-target
-
-# Supply brute-force wordlist (used by shuffledns if available)
-WORDLIST=wordlist.txt spiderco -d target.com --full --resolvers resolvers.txt
-
-# Add extra enumeration commands (semicolon separated)
-CUSTOM_ENUM_CMDS="crtsh.py -d target.com;another_enum_tool target.com" \
-  spiderco -d target.com --full
-
-# Skip URL collection and probing (just enumerate + resolve)
-spiderco -d target.com --no-urls --no-probe
-
-# Only add ports + nuclei later (if you already enumerated)
-spiderco -d target.com --ports --nuclei
-```
-
-## Enumeration Sources
-The script automatically queries multiple subdomain sources:
-- **subfinder**: Passive DNS aggregation
-- **assetfinder**: Passive subdomain discovery 
-- **amass**: OSINT-based enumeration (if installed)
-- **crt.sh**: Certificate transparency logs (requires curl + jq)
-- **shuffledns**: DNS bruteforce (requires custom wordlist via `WORDLIST` env var)
-- **Custom commands**: Via `CUSTOM_ENUM_CMDS` environment variable
-
-## Flags Summary
-| Flag | Description |
-|------|-------------|
-| -d / --domain | Apex domain (required) |
-| -o / --outdir | Output directory (default: recon-<domain>) |
-| -t / --threads | Concurrency (default: 50) |
-| --resolvers FILE | Custom resolvers list |
-| --no-urls | Skip URL archival/crawling stage |
-| --no-probe | Skip HTTP probing stage |
-| --ports | Run naabu port scan |
-| --nuclei | Run nuclei scan |
-| --full | Enable URLs + ports + nuclei |
-| --keep-temp | Retain temp/intermediate files |
-| --help / -h | Show help header |
-| --version | Print version |
-
-## Environment Variables
-| Variable | Purpose |
-|----------|---------|
-| WORDLIST | Path to wordlist for shuffledns brute-force |
-| CUSTOM_ENUM_CMDS | Extra enum commands separated by `;` (each should output subdomains) |
-
-## Output Structure
-
-```
-<outdir>/
-  enum/
-    raw/              # Raw tool outputs
-    all_subdomains.txt  # Only valid subdomains (no notes, IPs, or records)
-    resolved.txt
-  web/
-    httpx_full.txt
-    alive_hosts.txt
-  urls/
-    waybackurls.txt
-    gau.txt
-    katana.txt
-    waymore/ (folder produced by waymore)
-    all_urls.txt
-  scans/
-    ports.txt
-    nuclei.txt
-```
-
-**Note:** `all_subdomains.txt` is now strictly filtered to include only valid subdomain names, excluding tool notes, IPs, and other records.
-
-## Tool Installation Cheat Sheet
-(Install only what you need; Go bin path must be in $PATH.)
-```bash
+# Core tools
 go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest
+go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+
+# Additional tools (optional)
 go install github.com/tomnomnom/assetfinder@latest
 go install github.com/owasp-amass/amass/v4/...@latest
-go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest
-go install github.com/projectdiscovery/shuffledns/cmd/shuffledns@latest
 go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
-go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 go install github.com/tomnomnom/waybackurls@latest
 go install github.com/lc/gau/v2/cmd/gau@latest
-go install github.com/projectdiscovery/katana/cmd/katana@latest
-go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-pip install waymore
+
+# System tools
+sudo apt install curl jq  # For crt.sh integration
 ```
 
-## Recommended Workflow
-1. Initial wide passive recon: `./recon.sh -d target.com`  
-2. Deep dive (ports + nuclei): `./recon.sh -d target.com --full -t 100`  
-3. Focused brute (with wordlist + resolvers): `WORDLIST=wordlist.txt ./recon.sh -d target.com --full --resolvers resolvers.txt`  
-4. Feed `urls/all_urls.txt` into specialized fuzzers or parameter analyzers.
+## 📖 Usage
 
-## Notes
-- Script auto-detects supported flags for dnsx/httpx; mixed tool versions are handled.
-- If `dnsx` fails, it falls back to simple resolution (slower).
-- Add / prune resolvers in `resolvers.txt` for stability vs. diversity.
+### Basic Scan
+```bash
+spiderco -d example.com
+```
 
-## Disclaimer
-Use only against assets you have permission to test.
+### Full Reconnaissance
+```bash
+spiderco -d example.com --full
+```
 
-## License
-Add a license of your choice (e.g., MIT) if you plan to share publicly.
+### Custom Options
+```bash
+spiderco -d example.com --threads 100 --resolvers resolvers.txt --ports --nuclei
+```
+
+## 🎯 Features
+
+### Core Modules
+- **Subdomain Enumeration**: Multiple sources (subfinder, assetfinder, crt.sh, amass)
+- **DNS Resolution**: Fast resolution with dnsx
+- **HTTP Probing**: Live host detection with httpx
+- **URL Collection**: Historical URLs from waybackurls and gau
+- **Port Scanning**: Fast port discovery with naabu
+- **Vulnerability Scanning**: Automated scanning with nuclei
+
+### Data Sources
+- **Subfinder**: Certificate transparency, DNS databases
+- **Assetfinder**: Facebook, HackerTarget, and more
+- **crt.sh**: Certificate transparency logs
+- **Amass**: OSINT and active enumeration
+- **Wayback Machine**: Historical URL data
+- **Common Crawl**: Web crawl data
+
+## 📋 Command Line Options
+
+```
+Required:
+  -d, --domain <domain>    Target domain
+
+Options:
+  -o, --output <dir>       Output directory (default: domain name)
+  -t, --threads <n>        Number of threads (default: 50)
+  --resolvers <file>       Custom DNS resolvers file
+  --full                   Run all modules
+  --ports                  Enable port scanning
+  --nuclei                 Enable nuclei scanning
+  --no-probe              Skip HTTP probing
+  --no-urls               Skip URL collection
+  --help                  Show help
+  --version               Show version
+```
+
+## 📁 Output Structure
+
+```
+example.com/
+├── enum/
+│   ├── raw/                    # Raw tool outputs
+│   │   ├── subfinder.txt
+│   │   ├── assetfinder.txt
+│   │   ├── crtsh.txt
+│   │   └── amass.txt
+│   ├── all_subdomains.txt      # Combined subdomains
+│   └── resolved.txt            # Resolved subdomains
+├── web/
+│   ├── httpx_results.txt       # HTTP probe results
+│   └── alive_hosts.txt         # Live hosts
+├── urls/
+│   ├── waybackurls.txt         # Historical URLs
+│   ├── gau.txt                 # Archive URLs
+│   └── all_urls.txt            # Combined URLs
+├── ports/
+│   └── open_ports.txt          # Open ports
+└── nuclei/
+    └── vulnerabilities.txt     # Security findings
+```
+
+## 💡 Examples
+
+### Bug Bounty Workflow
+```bash
+# Quick enumeration
+spiderco -d target.com
+
+# Full reconnaissance with custom resolvers
+spiderco -d target.com --full --resolvers custom-resolvers.txt --threads 200
+
+# Focused web application testing
+spiderco -d target.com --no-ports --nuclei
+```
+
+### Custom Resolver Lists
+```bash
+# Use custom DNS resolvers for better results
+spiderco -d example.com --resolvers resolvers.txt
+```
+
+## 🔧 Configuration
+
+### Custom Resolvers
+Create a `resolvers.txt` file with one resolver per line:
+```
+8.8.8.8
+8.8.4.4
+1.1.1.1
+1.0.0.1
+```
+
+### Performance Tuning
+- Increase `--threads` for faster enumeration (default: 50)
+- Use quality DNS resolvers for better resolution rates
+- Consider rate limiting on shared infrastructure
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## ⚠️ Disclaimer
+
+This tool is for educational and authorized testing purposes only. Users are responsible for complying with applicable laws and regulations. The authors are not responsible for any misuse of this tool.
+
+## 🙏 Acknowledgments
+
+- ProjectDiscovery for their amazing security tools
+- Tom Hudson for assetfinder and waybackurls
+- OWASP Amass team
+- All other tool creators and contributors
 
 ---
-Feel free to open issues / extend the script. Happy hunting!
+
+**SpiderCo v2.0.0** - Rewritten from scratch for reliability and performance
