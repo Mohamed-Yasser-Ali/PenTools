@@ -1,9 +1,9 @@
 # SpiderCo - Advanced Reconnaissance Tool
 
 [![Go Install](https://img.shields.io/badge/go-install-blue.svg)](https://github.com/Mohamed-Yasser-Ali/PenTools)
-[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](https://github.com/Mohamed-Yasser-Ali/PenTools/releases)
+[![Version](https://img.shields.io/badge/version-2.1.0-green.svg)](https://github.com/Mohamed-Yasser-Ali/PenTools/releases)
 
-SpiderCo is a comprehensive reconnaissance tool designed for bug bounty hunters and penetration testers. It automates the process of subdomain enumeration, DNS resolution, HTTP probing, URL collection, port scanning, and vulnerability detection.
+SpiderCo is a comprehensive reconnaissance tool designed for bug bounty hunters and penetration testers. It automates the process of subdomain enumeration, DNS resolution, HTTP probing, URL collection, directory fuzzing, port scanning, and vulnerability detection.
 
 ## 🚀 Installation
 
@@ -37,6 +37,7 @@ go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 go install github.com/tomnomnom/waybackurls@latest
 go install github.com/lc/gau/v2/cmd/gau@latest
 pip install waymore
+pip install dirsearch
 
 # System tools
 sudo apt install curl jq  # For crt.sh integration
@@ -54,9 +55,14 @@ spiderco -d example.com
 spiderco -d example.com --full
 ```
 
+### Directory Fuzzing Only
+```bash
+spiderco -d example.com --fuzz
+```
+
 ### Custom Options
 ```bash
-spiderco -d example.com --threads 100 --resolvers resolvers.txt --ports --nuclei
+spiderco -d example.com --threads 100 --resolvers resolvers.txt --ports --nuclei --fuzz
 ```
 
 ## 🎯 Features
@@ -66,6 +72,7 @@ spiderco -d example.com --threads 100 --resolvers resolvers.txt --ports --nuclei
 - **DNS Resolution**: Fast resolution with dnsx
 - **HTTP Probing**: Live host detection with httpx
 - **URL Collection**: Historical URLs from waybackurls, gau, and waymore
+- **Directory Fuzzing**: Endpoint discovery with dirsearch (200, 301, 404 status codes)
 - **Port Scanning**: Fast port discovery with naabu
 - **Vulnerability Scanning**: Automated scanning with nuclei
 
@@ -77,6 +84,7 @@ spiderco -d example.com --threads 100 --resolvers resolvers.txt --ports --nuclei
 - **Wayback Machine**: Historical URL data via waybackurls
 - **Common Crawl**: Web crawl data via gau
 - **Waymore**: Enhanced wayback machine data with filtering
+- **Dirsearch**: Directory and file fuzzing with custom wordlists
 
 ## 📋 Command Line Options
 
@@ -88,9 +96,10 @@ Options:
   -o, --output <dir>       Output directory (default: domain name)
   -t, --threads <n>        Number of threads (default: 50)
   --resolvers <file>       Custom DNS resolvers file
-  --full                   Run all modules
+  --full                   Run all modules (includes fuzzing)
   --ports                  Enable port scanning
   --nuclei                 Enable nuclei scanning
+  --fuzz                   Enable directory fuzzing with dirsearch
   --no-probe              Skip HTTP probing
   --no-urls               Skip URL collection
   --help                  Show help
@@ -117,6 +126,11 @@ example.com/
 │   ├── gau.txt                 # Archive URLs
 │   ├── waymore.txt             # Enhanced wayback data
 │   └── all_urls.txt            # Combined URLs
+├── fuzzing/
+│   ├── sub1.example.com.txt    # Raw dirsearch results
+│   ├── sub2.example.com.txt    # Raw dirsearch results
+│   ├── filtered_sub1.example.com.txt  # Filtered results (200,301,404)
+│   └── filtered_sub2.example.com.txt  # Filtered results (200,301,404)
 ├── ports/
 │   └── open_ports.txt          # Open ports
 └── nuclei/
@@ -130,17 +144,20 @@ example.com/
 # Quick enumeration
 spiderco -d target.com
 
-# Full reconnaissance with custom resolvers
+# Full reconnaissance with custom resolvers and fuzzing
 spiderco -d target.com --full --resolvers custom-resolvers.txt --threads 200
 
-# Focused web application testing
-spiderco -d target.com --no-ports --nuclei
+# Focused web application testing with fuzzing
+spiderco -d target.com --fuzz --nuclei
+
+# Directory fuzzing only on discovered hosts
+spiderco -d target.com --fuzz --no-ports
 ```
 
 ### Custom Resolver Lists
 ```bash
 # Use custom DNS resolvers for better results
-spiderco -d example.com --resolvers resolvers.txt
+spiderco -d example.com --resolvers resolvers.txt --fuzz
 ```
 
 ## 🔧 Configuration
@@ -157,7 +174,35 @@ Create a `resolvers.txt` file with one resolver per line:
 ### Performance Tuning
 - Increase `--threads` for faster enumeration (default: 50)
 - Use quality DNS resolvers for better resolution rates
+- Directory fuzzing uses 20 threads per host for stability
 - Consider rate limiting on shared infrastructure
+
+### Dirsearch Configuration
+The tool automatically:
+- Tests both HTTP and HTTPS protocols
+- Filters for interesting status codes (200, 301, 302, 404)
+- Excludes 403 Forbidden responses from filtered results
+- Uses random user agents to avoid detection
+- Applies reasonable timeouts (10s) to prevent hanging
+
+## 🔍 Fuzzing Features
+
+### Smart Target Selection
+- Uses alive hosts from HTTP probing when available
+- Falls back to resolved subdomains if no alive hosts found
+- Automatically handles HTTP/HTTPS protocol detection
+
+### Output Organization
+- Raw results: `fuzzing/subdomain.example.com.txt`
+- Filtered results: `fuzzing/filtered_subdomain.example.com.txt`
+- Only interesting status codes (200, 301, 404) in filtered files
+- Per-subdomain organization for easy analysis
+
+### Status Code Focus
+- **200 OK**: Accessible endpoints and files
+- **301/302 Redirects**: Potential interesting redirections
+- **404 Not Found**: Confirms directory structure
+- **Excludes 403**: Reduces noise from forbidden responses
 
 ## 🤝 Contributing
 
@@ -176,8 +221,9 @@ This tool is for educational and authorized testing purposes only. Users are res
 - ProjectDiscovery for their amazing security tools
 - Tom Hudson for assetfinder and waybackurls
 - OWASP Amass team
+- Maurosoria for dirsearch
 - All other tool creators and contributors
 
 ---
 
-**SpiderCo v2.0.0** - Complete rewrite with waymore integration for enhanced URL collection
+**SpiderCo v2.1.0** - Now with intelligent directory fuzzing and enhanced endpoint discovery

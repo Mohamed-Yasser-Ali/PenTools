@@ -11,11 +11,11 @@ const embeddedScript = `#!/bin/bash
 
 # SpiderCo - Advanced Reconnaissance Tool
 # Author: Mohamed-Yasser-Ali
-# Version: 2.0.0
+# Version: 2.1.0
 
 set -euo pipefail
 
-VERSION="2.0.0"
+VERSION="2.1.0"
 
 # Colors
 RED='\033[0;31m'
@@ -44,9 +44,10 @@ Options:
   -o, --output <dir>       Output directory (default: domain name)
   -t, --threads <n>        Number of threads (default: 50)
   --resolvers <file>       Custom DNS resolvers file
-  --full                   Run all modules (default: enum + resolve + probe)
+  --full                   Run all modules
   --ports                  Enable port scanning
   --nuclei                 Enable nuclei scanning
+  --fuzz                   Enable directory fuzzing with dirsearch
   --no-probe              Skip HTTP probing
   --no-urls               Skip URL collection
   --help                  Show this help
@@ -55,7 +56,7 @@ Options:
 Examples:
   $0 -d example.com
   $0 -d example.com --full --threads 100
-  $0 -d example.com --resolvers custom_resolvers.txt
+  $0 -d example.com --fuzz --resolvers custom_resolvers.txt
 EOF
 }
 
@@ -71,6 +72,7 @@ TOOLS[nuclei]="go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@lates
 TOOLS[waybackurls]="go install github.com/tomnomnom/waybackurls@latest"
 TOOLS[gau]="go install github.com/lc/gau/v2/cmd/gau@latest"
 TOOLS[waymore]="pip install waymore"
+TOOLS[dirsearch]="pip install dirsearch"
 
 # Check if tool exists
 check_tool() {
@@ -90,6 +92,7 @@ RESOLVERS=""
 DO_FULL=false
 DO_PORTS=false
 DO_NUCLEI=false
+DO_FUZZ=false
 DO_PROBE=true
 DO_URLS=true
 
@@ -116,6 +119,7 @@ while [[ $# -gt 0 ]]; do
             DO_FULL=true
             DO_PORTS=true
             DO_NUCLEI=true
+            DO_FUZZ=true
             shift
             ;;
         --ports)
@@ -124,6 +128,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --nuclei)
             DO_NUCLEI=true
+            shift
+            ;;
+        --fuzz)
+            DO_FUZZ=true
             shift
             ;;
         --no-probe)
@@ -167,10 +175,11 @@ ENUM_DIR="$OUTPUT_DIR/enum"
 RAW_DIR="$ENUM_DIR/raw"
 WEB_DIR="$OUTPUT_DIR/web"
 URLS_DIR="$OUTPUT_DIR/urls"
+FUZZ_DIR="$OUTPUT_DIR/fuzzing"
 PORTS_DIR="$OUTPUT_DIR/ports"
 NUCLEI_DIR="$OUTPUT_DIR/nuclei"
 
-mkdir -p "$RAW_DIR" "$WEB_DIR" "$URLS_DIR" "$PORTS_DIR" "$NUCLEI_DIR"
+mkdir -p "$RAW_DIR" "$WEB_DIR" "$URLS_DIR" "$FUZZ_DIR" "$PORTS_DIR" "$NUCLEI_DIR"
 
 info "Target: $DOMAIN"
 info "Output: $OUTPUT_DIR"
@@ -181,7 +190,7 @@ if [[ -n "$RESOLVERS" && -f "$RESOLVERS" ]]; then
 fi
 
 # 1. Subdomain Enumeration
-info "[1/6] Subdomain enumeration"
+info "[1/7] Subdomain enumeration"
 
 # Subfinder
 if check_tool subfinder; then
@@ -226,7 +235,7 @@ SUBDOMAIN_COUNT=$(wc -l < "$ENUM_DIR/all_subdomains.txt")
 success "Found $SUBDOMAIN_COUNT unique subdomains"
 
 # 2. DNS Resolution
-info "[2/6] DNS resolution"
+info "[2/7] DNS resolution"
 
 if check_tool dnsx; then
     info "Resolving subdomains with dnsx..."
@@ -245,7 +254,7 @@ success "Resolved $RESOLVED_COUNT subdomains"
 
 # 3. HTTP Probing
 if [[ "$DO_PROBE" == true ]]; then
-    info "[3/6] HTTP probing"
+    info "[3/7] HTTP probing"
     
     if check_tool httpx; then
         info "Probing with httpx..."
@@ -267,12 +276,12 @@ if [[ "$DO_PROBE" == true ]]; then
         warn "httpx not found, skipping HTTP probing"
     fi
 else
-    info "[3/6] Skipping HTTP probing"
+    info "[3/7] Skipping HTTP probing"
 fi
 
 # 4. URL Collection
 if [[ "$DO_URLS" == true ]]; then
-    info "[4/6] URL collection"
+    info "[4/7] URL collection"
     
     TARGET_FILE="$WEB_DIR/alive_hosts.txt"
     if [[ ! -s "$TARGET_FILE" ]]; then
@@ -294,7 +303,7 @@ if [[ "$DO_URLS" == true ]]; then
     # Waymore
     if check_tool waymore; then
         info "Collecting URLs with waymore..."
-        waymore -i "$TARGET_FILE" -mode U -oU "$URLS_DIR/waymore.txt" 2>/dev/null || true
+        waymore -i "$TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt" 2>/dev/null || true
     fi
     
     # Combine URLs
@@ -302,12 +311,97 @@ if [[ "$DO_URLS" == true ]]; then
     URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
     success "Collected $URL_COUNT unique URLs"
 else
-    info "[4/6] Skipping URL collection"
+    info "[4/7] Skipping URL collection"
 fi
 
-# 5. Port Scanning
+# 5. Directory Fuzzing
+if [[ "$DO_FUZZ" == true ]]; then
+    info "[5/7] Directory fuzzing"
+    
+    if check_tool dirsearch; then
+        # Use alive hosts if available, otherwise use resolved subdomains
+        FUZZ_TARGET_FILE="$WEB_DIR/alive_hosts.txt"
+        if [[ ! -s "$FUZZ_TARGET_FILE" ]]; then
+            FUZZ_TARGET_FILE="$ENUM_DIR/resolved.txt"
+        fi
+        
+        if [[ -s "$FUZZ_TARGET_FILE" ]]; then
+            info "Fuzzing directories on discovered hosts..."
+            
+            # Add http/https prefixes if not present and fuzz each host
+            while read -r host; do
+                if [[ -n "$host" ]]; then
+                    # Clean hostname for filename
+                    clean_host=$(echo "$host" | sed 's|https\?://||' | sed 's|/.*||')
+                    
+                    # Determine URL format
+                    if [[ "$host" =~ ^https?:// ]]; then
+                        target_url="$host"
+                    else
+                        # Try HTTPS first, fallback to HTTP
+                        target_url="https://$host"
+                    fi
+                    
+                    info "Fuzzing $clean_host..."
+                    
+                    # Run dirsearch with specific status codes
+                    dirsearch -u "$target_url" \
+                             --format=simple \
+                             --output="$FUZZ_DIR/${clean_host}.txt" \
+                             --include-status=200,301,302,403,404 \
+                             --threads=20 \
+                             --timeout=10 \
+                             --random-agent \
+                             --quiet \
+                             2>/dev/null || true
+                             
+                    # If HTTPS failed, try HTTP
+                    if [[ ! -s "$FUZZ_DIR/${clean_host}.txt" && ! "$host" =~ ^http:// ]]; then
+                        info "Retrying $clean_host with HTTP..."
+                        dirsearch -u "http://$host" \
+                                 --format=simple \
+                                 --output="$FUZZ_DIR/${clean_host}_http.txt" \
+                                 --include-status=200,301,302,403,404 \
+                                 --threads=20 \
+                                 --timeout=10 \
+                                 --random-agent \
+                                 --quiet \
+                                 2>/dev/null || true
+                    fi
+                fi
+            done < "$FUZZ_TARGET_FILE"
+            
+            # Filter and combine results
+            info "Processing fuzzing results..."
+            for fuzz_file in "$FUZZ_DIR"/*.txt; do
+                if [[ -f "$fuzz_file" && -s "$fuzz_file" ]]; then
+                    filename=$(basename "$fuzz_file" .txt)
+                    # Filter for interesting status codes and clean output
+                    grep -E "(200|301|302|404)" "$fuzz_file" | \
+                    grep -v "403" | \
+                    sort -u > "$FUZZ_DIR/filtered_${filename}.txt" 2>/dev/null || true
+                fi
+            done
+            
+            # Count total interesting endpoints
+            FUZZ_COUNT=$(find "$FUZZ_DIR" -name "filtered_*.txt" -exec cat {} \; 2>/dev/null | wc -l || echo 0)
+            success "Found $FUZZ_COUNT interesting endpoints across all hosts"
+        else
+            warn "No hosts found for fuzzing"
+            FUZZ_COUNT=0
+        fi
+    else
+        warn "dirsearch not found, skipping directory fuzzing"
+        FUZZ_COUNT=0
+    fi
+else
+    info "[5/7] Skipping directory fuzzing"
+    FUZZ_COUNT=0
+fi
+
+# 6. Port Scanning
 if [[ "$DO_PORTS" == true ]]; then
-    info "[5/6] Port scanning"
+    info "[6/7] Port scanning"
     
     if check_tool naabu; then
         info "Scanning ports with naabu..."
@@ -321,14 +415,16 @@ if [[ "$DO_PORTS" == true ]]; then
         success "Found $PORT_COUNT open ports"
     else
         warn "naabu not found, skipping port scanning"
+        PORT_COUNT=0
     fi
 else
-    info "[5/6] Skipping port scanning"
+    info "[6/7] Skipping port scanning"
+    PORT_COUNT=0
 fi
 
-# 6. Nuclei Scanning
+# 7. Nuclei Scanning
 if [[ "$DO_NUCLEI" == true ]]; then
-    info "[6/6] Nuclei scanning"
+    info "[7/7] Nuclei scanning"
     
     if check_tool nuclei; then
         TARGET_FILE="$WEB_DIR/alive_hosts.txt"
@@ -345,9 +441,11 @@ if [[ "$DO_NUCLEI" == true ]]; then
         success "Found $VULN_COUNT potential vulnerabilities"
     else
         warn "nuclei not found, skipping vulnerability scanning"
+        VULN_COUNT=0
     fi
 else
-    info "[6/6] Skipping nuclei scanning"
+    info "[7/7] Skipping nuclei scanning"
+    VULN_COUNT=0
 fi
 
 # Summary
@@ -360,6 +458,9 @@ if [[ "$DO_PROBE" == true ]]; then
 fi
 if [[ "$DO_URLS" == true ]]; then
     info "URLs: $URL_COUNT"
+fi
+if [[ "$DO_FUZZ" == true ]]; then
+    info "Fuzzed endpoints: $FUZZ_COUNT"
 fi
 if [[ "$DO_PORTS" == true ]]; then
     info "Open ports: $PORT_COUNT"
