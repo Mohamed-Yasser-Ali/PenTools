@@ -36,6 +36,7 @@ go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
 go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 go install github.com/tomnomnom/waybackurls@latest
 go install github.com/lc/gau/v2/cmd/gau@latest
+pip install waymore
 
 # System tools
 sudo apt install curl jq  # For crt.sh integration
@@ -64,7 +65,7 @@ spiderco -d example.com --threads 100 --resolvers resolvers.txt --ports --nuclei
 - **Subdomain Enumeration**: Multiple sources (subfinder, assetfinder, crt.sh, amass)
 - **DNS Resolution**: Fast resolution with dnsx
 - **HTTP Probing**: Live host detection with httpx
-- **URL Collection**: Historical URLs from waybackurls and gau
+- **URL Collection**: Historical URLs from waybackurls, gau, and waymore
 - **Port Scanning**: Fast port discovery with naabu
 - **Vulnerability Scanning**: Automated scanning with nuclei
 
@@ -73,8 +74,9 @@ spiderco -d example.com --threads 100 --resolvers resolvers.txt --ports --nuclei
 - **Assetfinder**: Facebook, HackerTarget, and more
 - **crt.sh**: Certificate transparency logs
 - **Amass**: OSINT and active enumeration
-- **Wayback Machine**: Historical URL data
-- **Common Crawl**: Web crawl data
+- **Wayback Machine**: Historical URL data via waybackurls
+- **Common Crawl**: Web crawl data via gau
+- **Waymore**: Enhanced wayback machine data with filtering
 
 ## 📋 Command Line Options
 
@@ -113,6 +115,7 @@ example.com/
 ├── urls/
 │   ├── waybackurls.txt         # Historical URLs
 │   ├── gau.txt                 # Archive URLs
+│   ├── waymore.txt             # Enhanced wayback data
 │   └── all_urls.txt            # Combined URLs
 ├── ports/
 │   └── open_ports.txt          # Open ports
@@ -177,4 +180,4 @@ This tool is for educational and authorized testing purposes only. Users are res
 
 ---
 
-**SpiderCo v2.0.0** - Rewritten from scratch for reliability and performance
+**SpiderCo v2.0.0** - Complete rewrite with waymore integration for enhanced URL collection

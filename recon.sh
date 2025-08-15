@@ -61,6 +61,7 @@ TOOLS[naabu]="go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest"
 TOOLS[nuclei]="go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
 TOOLS[waybackurls]="go install github.com/tomnomnom/waybackurls@latest"
 TOOLS[gau]="go install github.com/lc/gau/v2/cmd/gau@latest"
+TOOLS[waymore]="pip install waymore"
 
 # Check if tool exists
 check_tool() {
@@ -208,8 +209,8 @@ fi
 # Combine and clean results
 info "Combining subdomain results..."
 cat "$RAW_DIR"/*.txt 2>/dev/null \
-    | grep -E "\.$DOMAIN$" \
-    | grep -v ' ' \
+    | grep -iE "^[a-z0-9._-]+\.$DOMAIN$" \
+    | grep -vE ' |note:|->|^[0-9.]+$|^[0-9a-f:]+$' \
     | sort -u > "$ENUM_DIR/all_subdomains.txt"
 
 SUBDOMAIN_COUNT=$(wc -l < "$ENUM_DIR/all_subdomains.txt")
@@ -281,6 +282,12 @@ if [[ "$DO_URLS" == true ]]; then
         gau "$DOMAIN" > "$URLS_DIR/gau.txt" 2>/dev/null || true
     fi
     
+    # Waymore
+    if check_tool waymore; then
+        info "Collecting URLs with waymore..."
+        waymore -i "$TARGET_FILE" -mode U -oU "$URLS_DIR/waymore.txt" 2>/dev/null || true
+    fi
+    
     # Combine URLs
     cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt" || true
     URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
@@ -325,4 +332,29 @@ if [[ "$DO_NUCLEI" == true ]]; then
                -silent \
                > "$NUCLEI_DIR/vulnerabilities.txt" 2>/dev/null || true
         
-        VULN_COUNT=$(wc -l < "$NUCLEI_DIR/vulnerabilities.txt" 2
+        VULN_COUNT=$(wc -l < "$NUCLEI_DIR/vulnerabilities.txt" 2>/dev/null || echo 0)
+        success "Found $VULN_COUNT potential vulnerabilities"
+    else
+        warn "nuclei not found, skipping vulnerability scanning"
+    fi
+else
+    info "[6/6] Skipping nuclei scanning"
+fi
+
+# Summary
+echo
+success "Reconnaissance complete!"
+info "Results saved in: $OUTPUT_DIR"
+info "Subdomains: $SUBDOMAIN_COUNT found, $RESOLVED_COUNT resolved"
+if [[ "$DO_PROBE" == true ]]; then
+    info "Alive hosts: $ALIVE_COUNT"
+fi
+if [[ "$DO_URLS" == true ]]; then
+    info "URLs: $URL_COUNT"
+fi
+if [[ "$DO_PORTS" == true ]]; then
+    info "Open ports: $PORT_COUNT"
+fi
+if [[ "$DO_NUCLEI" == true ]]; then
+    info "Vulnerabilities: $VULN_COUNT"
+fi
