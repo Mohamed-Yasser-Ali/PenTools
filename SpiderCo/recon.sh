@@ -202,13 +202,17 @@ fi
 # crt.sh
 if command -v curl &> /dev/null && command -v jq &> /dev/null; then
     info "Querying crt.sh..."
-    curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" | jq -r '.[].name_value' | sed 's/\*\.//g' | grep -E "\.$DOMAIN$"| sort -u > "$RAW_DIR/crtsh.txt" 
+    curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" 2>/dev/null \
+        | jq -r '.[].name_value' 2>/dev/null \
+        | sed 's/\*\.//g' \
+        | grep -E "\.$DOMAIN$" \
+        | sort -u > "$RAW_DIR/crtsh.txt" || true
 fi
 
 # Amass
 if check_tool amass; then
     info "Running amass..."
-    amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt" 
+    amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt" 2>/dev/null || true
 fi
 
 # Combine and clean results
@@ -277,34 +281,33 @@ fi
 # 4. URL Collection
 if [[ "$DO_URLS" == true ]]; then
     info "[4/7] URL collection"
-    
-    TARGET_FILE="$WEB_DIR/alive_hosts.txt"
-    if [[ ! -s "$TARGET_FILE" ]]; then
-        TARGET_FILE="$ENUM_DIR/resolved.txt"
+    if [[ ! -s "$WEB_DIR/alive_hosts.txt" && ! -s "$ENUM_DIR/resolved.txt" ]]; then
+        warn "No hosts found for URL collection"
+    else
+        # Use NEXT_TARGET_FILE for URL collection
+        # Waybackurls
+        if check_tool waybackurls; then
+            info "Collecting URLs with waybackurls..."
+            cat "$NEXT_TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt" 2>/dev/null || true
+        fi
+        
+        # GAU
+        if check_tool gau; then
+            info "Collecting URLs with gau..."
+            gau "$DOMAIN" > "$URLS_DIR/gau.txt" 2>/dev/null || true
+        fi
+        
+        # Waymore
+        if check_tool waymore; then
+            info "Collecting URLs with waymore..."
+            waymore -i "$NEXT_TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt" 2>/dev/null || true
+        fi
+        
+        # Combine URLs
+        cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt" || true
+        URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
+        success "Collected $URL_COUNT unique URLs"
     fi
-    
-    # Waybackurls
-    if check_tool waybackurls; then
-        info "Collecting URLs with waybackurls..."
-        cat "$TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt" 2>/dev/null || true
-    fi
-    
-    # GAU
-    if check_tool gau; then
-        info "Collecting URLs with gau..."
-        gau "$DOMAIN" > "$URLS_DIR/gau.txt" 2>/dev/null || true
-    fi
-    
-    # Waymore
-    if check_tool waymore; then
-        info "Collecting URLs with waymore..."
-        waymore -i "$TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt" 2>/dev/null || true
-    fi
-    
-    # Combine URLs
-    cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt" || true
-    URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
-    success "Collected $URL_COUNT unique URLs"
 else
     info "[4/7] Skipping URL collection"
 fi
