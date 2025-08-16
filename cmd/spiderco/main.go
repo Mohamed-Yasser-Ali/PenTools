@@ -348,7 +348,7 @@ if [[ "$DO_FUZZ" == true ]]; then
                     dirsearch -u "$target_url" \
                              --format=simple \
                              --output="$FUZZ_DIR/${clean_host}.txt" \
-                             --include-status=200,301,302,403,404 \
+                             --include-status=200,301 \
                              --threads=20 \
                              --timeout=10 \
                              --random-agent \
@@ -361,7 +361,7 @@ if [[ "$DO_FUZZ" == true ]]; then
                         dirsearch -u "http://$host" \
                                  --format=simple \
                                  --output="$FUZZ_DIR/${clean_host}_http.txt" \
-                                 --include-status=200,301,302,403,404 \
+                                 --include-status=200,301 \
                                  --threads=20 \
                                  --timeout=10 \
                                  --random-agent \
