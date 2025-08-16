@@ -294,7 +294,7 @@ if [[ "$DO_URLS" == true ]]; then
     # Waymore
     if check_tool waymore; then
         info "Collecting URLs with waymore..."
-        waymore -i "$TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt" 2>/dev/null || true
+        waymore -i "$TARGET_FILE" -mode U -oU "$URLS_DIR/waymore.txt" 2>/dev/null || true
     fi
     
     # Combine URLs
