@@ -310,7 +310,6 @@ if [[ "$DO_FUZZ" == true ]]; then
     info "[5/7] Directory fuzzing"
     
     if check_tool dirsearch; then
-        # Use alive hosts if available, otherwise use resolved subdomains
         FUZZ_TARGET_FILE="$WEB_DIR/alive_hosts.txt"
         if [[ ! -s "$FUZZ_TARGET_FILE" ]]; then
             FUZZ_TARGET_FILE="$ENUM_DIR/resolved.txt"
@@ -318,41 +317,30 @@ if [[ "$DO_FUZZ" == true ]]; then
         
         if [[ -s "$FUZZ_TARGET_FILE" ]]; then
             info "Fuzzing directories on discovered hosts..."
-            
-            # Add http/https prefixes if not present and fuzz each host
             while read -r host; do
                 if [[ -n "$host" ]]; then
-                    # Clean hostname for filename
                     clean_host=$(echo "$host" | sed 's|https\?://||' | sed 's|/.*||')
-                    
-                    # Determine URL format
                     if [[ "$host" =~ ^https?:// ]]; then
                         target_url="$host"
                     else
-                        # Try HTTPS first, fallback to HTTP
                         target_url="https://$host"
                     fi
-                    
                     info "Fuzzing $clean_host..."
-                    
-                    # Run dirsearch with specific status codes
                     dirsearch -u "$target_url" \
                              --format=simple \
                              --output="$FUZZ_DIR/${clean_host}.txt" \
-                             --include-status=200,301,302,403,404 \
+                             --include-status=200,201,202,203,204,205,206,207,208,226,301 \
                              --threads=20 \
                              --timeout=10 \
                              --random-agent \
                              --quiet \
                              2>/dev/null || true
-                             
-                    # If HTTPS failed, try HTTP
                     if [[ ! -s "$FUZZ_DIR/${clean_host}.txt" && ! "$host" =~ ^http:// ]]; then
                         info "Retrying $clean_host with HTTP..."
                         dirsearch -u "http://$host" \
                                  --format=simple \
                                  --output="$FUZZ_DIR/${clean_host}_http.txt" \
-                                 --include-status=200,301,302,403,404 \
+                                 --include-status=200,201,202,203,204,205,206,207,208,226,301 \
                                  --threads=20 \
                                  --timeout=10 \
                                  --random-agent \
@@ -362,19 +350,14 @@ if [[ "$DO_FUZZ" == true ]]; then
                 fi
             done < "$FUZZ_TARGET_FILE"
             
-            # Filter and combine results
             info "Processing fuzzing results..."
             for fuzz_file in "$FUZZ_DIR"/*.txt; do
                 if [[ -f "$fuzz_file" && -s "$fuzz_file" ]]; then
                     filename=$(basename "$fuzz_file" .txt)
-                    # Filter for interesting status codes and clean output
-                    grep -E "(200|301|302|404)" "$fuzz_file" | \
-                    grep -v "403" | \
-                    sort -u > "$FUZZ_DIR/filtered_${filename}.txt" 2>/dev/null || true
+                    grep -E "([[:space:]]2[0-9]{2}|[[:space:]]301)" "$fuzz_file" | sort -u > "$FUZZ_DIR/filtered_${filename}.txt" 2>/dev/null || true
                 fi
             done
             
-            # Count total interesting endpoints
             FUZZ_COUNT=$(find "$FUZZ_DIR" -name "filtered_*.txt" -exec cat {} \; 2>/dev/null | wc -l || echo 0)
             success "Found $FUZZ_COUNT interesting endpoints across all hosts"
         else
@@ -389,6 +372,7 @@ else
     info "[5/7] Skipping directory fuzzing"
     FUZZ_COUNT=0
 fi
+
 
 # 6. Port Scanning
 if [[ "$DO_PORTS" == true ]]; then

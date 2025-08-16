@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">Funding Tracker</string>
+    <string name="welcome_message">Welcome to the Funding Tracker App</string>
+    <string name="add_funding">Add Funding Entry</string>
+    <string name="total_funding">Total Funding:</string>
+    <string name="total_earnings">Total Earnings:</string>
+    <string name="currency_usd">USD</string>
+    <string name="currency_egp">EGP</string>
+    <string name="error_empty_fields">Please fill in all fields.</string>
+    <string name="error_invalid_amount">Please enter a valid amount.</string>
+    <string name="success_entry_added">Funding entry added successfully!</string>
+    <string name="label_amount">Amount:</string>
+    <string name="label_currency">Currency:</string>
+    <string name="label_date">Date:</string>
+    <string name="label_funding_list">Funding Entries</string>
+</resources>
