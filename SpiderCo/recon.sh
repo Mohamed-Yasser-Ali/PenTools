@@ -277,33 +277,34 @@ fi
 # 4. URL Collection
 if [[ "$DO_URLS" == true ]]; then
     info "[4/7] URL collection"
-    if [[ ! -s "$WEB_DIR/alive_hosts.txt" && ! -s "$ENUM_DIR/resolved.txt" ]]; then
-        warn "No hosts found for URL collection"
-    else
-        # Use NEXT_TARGET_FILE for URL collection
-        # Waybackurls
-        if check_tool waybackurls; then
-            info "Collecting URLs with waybackurls..."
-            cat "$NEXT_TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt" 2>/dev/null || true
-        fi
-        
-        # GAU
-        if check_tool gau; then
-            info "Collecting URLs with gau..."
-            gau "$DOMAIN" > "$URLS_DIR/gau.txt" 2>/dev/null || true
-        fi
-        
-        # Waymore
-        if check_tool waymore; then
-            info "Collecting URLs with waymore..."
-            waymore -i "$NEXT_TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt" 2>/dev/null || true
-        fi
-        
-        # Combine URLs
-        cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt" || true
-        URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
-        success "Collected $URL_COUNT unique URLs"
+    
+    TARGET_FILE="$WEB_DIR/alive_hosts.txt"
+    if [[ ! -s "$TARGET_FILE" ]]; then
+        TARGET_FILE="$ENUM_DIR/resolved.txt"
     fi
+    
+    # Waybackurls
+    if check_tool waybackurls; then
+        info "Collecting URLs with waybackurls..."
+        cat "$TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt" 2>/dev/null || true
+    fi
+    
+    # GAU
+    if check_tool gau; then
+        info "Collecting URLs with gau..."
+        gau "$DOMAIN" > "$URLS_DIR/gau.txt" 2>/dev/null || true
+    fi
+    
+    # Waymore
+    if check_tool waymore; then
+        info "Collecting URLs with waymore..."
+        waymore -i "$TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt" 2>/dev/null || true
+    fi
+    
+    # Combine URLs
+    cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt" || true
+    URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
+    success "Collected $URL_COUNT unique URLs"
 else
     info "[4/7] Skipping URL collection"
 fi
