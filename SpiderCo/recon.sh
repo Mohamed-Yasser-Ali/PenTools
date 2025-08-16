@@ -202,17 +202,13 @@ fi
 # crt.sh
 if command -v curl &> /dev/null && command -v jq &> /dev/null; then
     info "Querying crt.sh..."
-    curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" 2>/dev/null \
-        | jq -r '.[].name_value' 2>/dev/null \
-        | sed 's/\*\.//g' \
-        | grep -E "\.$DOMAIN$" \
-        | sort -u > "$RAW_DIR/crtsh.txt" || true
+    curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" | jq -r '.[].name_value' | sed 's/\*\.//g' | grep -E "\.$DOMAIN$"| sort -u > "$RAW_DIR/crtsh.txt" 
 fi
 
 # Amass
 if check_tool amass; then
     info "Running amass..."
-    amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt" 2>/dev/null || true
+    amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt" 
 fi
 
 # Combine and clean results
@@ -243,13 +239,21 @@ fi
 RESOLVED_COUNT=$(wc -l < "$ENUM_DIR/resolved.txt")
 success "Resolved $RESOLVED_COUNT subdomains"
 
+# If resolved.txt is empty, use alive_hosts.txt for next steps
+if [[ ! -s "$ENUM_DIR/resolved.txt" ]]; then
+    warn "resolved.txt is empty, switching to alive_hosts.txt for next steps"
+    NEXT_TARGET_FILE="$WEB_DIR/alive_hosts.txt"
+else
+    NEXT_TARGET_FILE="$ENUM_DIR/resolved.txt"
+fi
+
 # 3. HTTP Probing
 if [[ "$DO_PROBE" == true ]]; then
     info "[3/7] HTTP probing"
     
     if check_tool httpx; then
         info "Probing with httpx..."
-        httpx -l "$ENUM_DIR/resolved.txt" \
+        httpx -l "$NEXT_TARGET_FILE" \
               -silent \
               -status-code \
               -title \
@@ -273,34 +277,33 @@ fi
 # 4. URL Collection
 if [[ "$DO_URLS" == true ]]; then
     info "[4/7] URL collection"
-    
-    TARGET_FILE="$WEB_DIR/alive_hosts.txt"
-    if [[ ! -s "$TARGET_FILE" ]]; then
-        TARGET_FILE="$ENUM_DIR/resolved.txt"
+    if [[ ! -s "$WEB_DIR/alive_hosts.txt" && ! -s "$ENUM_DIR/resolved.txt" ]]; then
+        warn "No hosts found for URL collection"
+    else
+        # Use NEXT_TARGET_FILE for URL collection
+        # Waybackurls
+        if check_tool waybackurls; then
+            info "Collecting URLs with waybackurls..."
+            cat "$NEXT_TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt" 2>/dev/null || true
+        fi
+        
+        # GAU
+        if check_tool gau; then
+            info "Collecting URLs with gau..."
+            gau "$DOMAIN" > "$URLS_DIR/gau.txt" 2>/dev/null || true
+        fi
+        
+        # Waymore
+        if check_tool waymore; then
+            info "Collecting URLs with waymore..."
+            waymore -i "$NEXT_TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt" 2>/dev/null || true
+        fi
+        
+        # Combine URLs
+        cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt" || true
+        URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
+        success "Collected $URL_COUNT unique URLs"
     fi
-    
-    # Waybackurls
-    if check_tool waybackurls; then
-        info "Collecting URLs with waybackurls..."
-        cat "$TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt" 2>/dev/null || true
-    fi
-    
-    # GAU
-    if check_tool gau; then
-        info "Collecting URLs with gau..."
-        gau "$DOMAIN" > "$URLS_DIR/gau.txt" 2>/dev/null || true
-    fi
-    
-    # Waymore
-    if check_tool waymore; then
-        info "Collecting URLs with waymore..."
-        waymore -i "$TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt" 2>/dev/null || true
-    fi
-    
-    # Combine URLs
-    cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt" || true
-    URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
-    success "Collected $URL_COUNT unique URLs"
 else
     info "[4/7] Skipping URL collection"
 fi
@@ -310,11 +313,7 @@ if [[ "$DO_FUZZ" == true ]]; then
     info "[5/7] Directory fuzzing"
     
     if check_tool dirsearch; then
-        FUZZ_TARGET_FILE="$WEB_DIR/alive_hosts.txt"
-        if [[ ! -s "$FUZZ_TARGET_FILE" ]]; then
-            FUZZ_TARGET_FILE="$ENUM_DIR/resolved.txt"
-        fi
-        
+        FUZZ_TARGET_FILE="$NEXT_TARGET_FILE"
         if [[ -s "$FUZZ_TARGET_FILE" ]]; then
             info "Fuzzing directories on discovered hosts..."
             while read -r host; do
@@ -373,14 +372,13 @@ else
     FUZZ_COUNT=0
 fi
 
-
 # 6. Port Scanning
 if [[ "$DO_PORTS" == true ]]; then
     info "[6/7] Port scanning"
     
     if check_tool naabu; then
         info "Scanning ports with naabu..."
-        naabu -l "$ENUM_DIR/resolved.txt" \
+        naabu -l "$NEXT_TARGET_FILE" \
               -silent \
               -top-ports 1000 \
               -rate 1000 \
@@ -404,7 +402,7 @@ if [[ "$DO_NUCLEI" == true ]]; then
     if check_tool nuclei; then
         TARGET_FILE="$WEB_DIR/alive_hosts.txt"
         if [[ ! -s "$TARGET_FILE" ]]; then
-            TARGET_FILE="$ENUM_DIR/resolved.txt"
+            TARGET_FILE="$NEXT_TARGET_FILE"
         fi
         
         info "Running nuclei scans..."
