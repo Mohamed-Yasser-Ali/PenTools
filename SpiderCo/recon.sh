@@ -7,7 +7,7 @@
 set -euo pipefail
 
 VERSION="2.2.2"
-
+NOCOLOR=''
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -126,22 +126,16 @@ info "Threads: $THREADS"
 
 # 1. Subdomains
 info "[1/7] Subdomain enumeration"
-check_tool subfinder && subfinder -d "$DOMAIN" -all -silent ${RESOLVERS:+-rL $RESOLVERS} > "$RAW_DIR/subfinder.txt"
+check_tool subfinder && subfinder -d "$DOMAIN" -all -silent > "$RAW_DIR/subfinder.txt"
 check_tool assetfinder && assetfinder --subs-only "$DOMAIN" > "$RAW_DIR/assetfinder.txt"
 if command -v curl &>/dev/null && command -v jq &>/dev/null; then
     info "Querying crt.sh..."
-    (
-        curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" \
-        | jq -r '.[].name_value' \
-        | sed 's/\*\.\?//g' \
-        | grep -i "\.$DOMAIN" \
-        | sort -u
-    ) > "$RAW_DIR/crtsh.txt"
+    curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" | jq -r '.[].name_value' | sed 's/\*\.\?//g' | grep -i "\.$DOMAIN" | sort -u > "$RAW_DIR/crtsh.txt"
 fi
 check_tool amass && amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt"
 
 # Combine all subdomains (robust, no strict filtering)
-cat "$RAW_DIR"/*.txt 2>/dev/null | grep -i "\.$DOMAIN" | sort -u > "$ENUM_DIR/all_subdomains.txt"
+cat "$RAW_DIR"/*.txt | grep -i "\.$DOMAIN" | sort -u > "$ENUM_DIR/all_subdomains.txt"
 SUBDOMAIN_COUNT=$(wc -l < "$ENUM_DIR/all_subdomains.txt")
 success "Found $SUBDOMAIN_COUNT unique subdomains"
 
@@ -149,8 +143,6 @@ success "Found $SUBDOMAIN_COUNT unique subdomains"
 info "[2/7] DNS resolution"
 if check_tool dnsx; then
     dnsx -l "$ENUM_DIR/all_subdomains.txt" -silent -t "$THREADS" > "$ENUM_DIR/resolved.txt"
-else
-    while read -r s; do host "$s" &>/dev/null && echo "$s"; done < "$ENUM_DIR/all_subdomains.txt" > "$ENUM_DIR/resolved.txt"
 fi
 RESOLVED_COUNT=$(wc -l < "$ENUM_DIR/resolved.txt")
 success "Resolved $RESOLVED_COUNT subdomains"
@@ -181,10 +173,10 @@ if [[ "$DO_URLS" == true ]]; then
     info "[4/7] URL collection"
     if [[ -s "$WEB_DIR/alive_hosts.txt" || -s "$NEXT_TARGET_FILE" ]]; then
         check_tool waybackurls && cat "$NEXT_TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt"
-        check_tool gau && gau "$DOMAIN" > "$URLS_DIR/gau.txt"
-        check_tool waymore && waymore -i "$NEXT_TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt"
+        check_tool gau && cat "$NEXT_TARGET_FILE" | gau > "$URLS_DIR/gau.txt"
+        check_tool waymore && waymore -i "$NEXT_TARGET_FILE" -mode U -oU "$URLS_DIR/waymore.txt"
         cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt"
-        URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
+        URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt")
         success "Collected $URL_COUNT unique URLs"
     else
         warn "No hosts found for URL collection"
@@ -220,7 +212,7 @@ if [[ "$DO_PORTS" == true ]]; then
     info "[6/7] Port scanning"
     if check_tool naabu; then
         naabu -l "$NEXT_TARGET_FILE" -silent -top-ports 1000 -rate 1000 -t "$THREADS" > "$PORTS_DIR/open_ports.txt"
-        PORT_COUNT=$(wc -l < "$PORTS_DIR/open_ports.txt" 2>/dev/null || echo 0)
+        PORT_COUNT=$(wc -l < "$PORTS_DIR/open_ports.txt")
         success "Found $PORT_COUNT open ports"
     else
         warn "naabu not found"
@@ -237,7 +229,7 @@ if [[ "$DO_NUCLEI" == true ]]; then
     if check_tool nuclei; then
         TARGET_FILE="$WEB_DIR/alive_hosts.txt"
         [[ ! -s "$TARGET_FILE" ]] && TARGET_FILE="$NEXT_TARGET_FILE"
-        nuclei -l "$TARGET_FILE" -severity low,medium,high,critical -silent -t "$THREADS" > "$NUCLEI_DIR/vulnerabilities.txt"
+        nuclei -l "$TARGET_FILE" > "$NUCLEI_DIR/vulnerabilities.txt"
         VULN_COUNT=$(wc -l < "$NUCLEI_DIR/vulnerabilities.txt" 2>/dev/null || echo 0)
         success "Found $VULN_COUNT potential vulnerabilities"
     else
