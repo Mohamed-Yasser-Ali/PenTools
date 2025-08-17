@@ -2,11 +2,11 @@
 
 # SpiderCo - Advanced Reconnaissance Tool
 # Author: Mohamed-Yasser-Ali
-# Version: 2.2.1 (fixed crt.sh and subdomain filtering)
+# Version: 2.2.2 (crt.sh subshell fix, robust subdomain combining)
 
 set -euo pipefail
 
-VERSION="2.2.1"
+VERSION="2.2.2"
 
 # Colors
 RED='\033[0;31m'
@@ -130,15 +130,17 @@ check_tool subfinder && subfinder -d "$DOMAIN" -all -silent ${RESOLVERS:+-rL $RE
 check_tool assetfinder && assetfinder --subs-only "$DOMAIN" > "$RAW_DIR/assetfinder.txt"
 if command -v curl &>/dev/null && command -v jq &>/dev/null; then
     info "Querying crt.sh..."
-    curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" \
+    (
+        curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" \
         | jq -r '.[].name_value' \
         | sed 's/\*\.\?//g' \
         | grep -i "\.$DOMAIN" \
-        | sort -u > "$RAW_DIR/crtsh.txt"
+        | sort -u
+    ) > "$RAW_DIR/crtsh.txt"
 fi
 check_tool amass && amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt"
 
-# Combine all subdomains (no strict filtering)
+# Combine all subdomains (robust, no strict filtering)
 cat "$RAW_DIR"/*.txt 2>/dev/null | grep -i "\.$DOMAIN" | sort -u > "$ENUM_DIR/all_subdomains.txt"
 SUBDOMAIN_COUNT=$(wc -l < "$ENUM_DIR/all_subdomains.txt")
 success "Found $SUBDOMAIN_COUNT unique subdomains"
