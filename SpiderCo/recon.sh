@@ -2,11 +2,11 @@
 
 # SpiderCo - Advanced Reconnaissance Tool
 # Author: Mohamed-Yasser-Ali
-# Version: 2.2.0 (cleaned)
+# Version: 2.2.1 (fixed crt.sh and subdomain filtering)
 
 set -euo pipefail
 
-VERSION="2.2.0"
+VERSION="2.2.1"
 
 # Colors
 RED='\033[0;31m'
@@ -126,31 +126,46 @@ info "Threads: $THREADS"
 
 # 1. Subdomains
 info "[1/7] Subdomain enumeration"
-check_tool subfinder && subfinder -d "$DOMAIN" -all -silent ${RESOLVERS:+-rL $RESOLVERS} > "$RAW_DIR/subfinder.txt" 
-check_tool assetfinder && assetfinder --subs-only "$DOMAIN" > "$RAW_DIR/assetfinder.txt" 
-(command -v curl &>/dev/null && command -v jq &>/dev/null) && curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" | jq -r '.[].name_value' | sed 's/\\*\\.//g' | grep -i "\\.${DOMAIN}" | sort -u > "$RAW_DIR/crtsh.txt" 
-check_tool amass && amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt" 
+check_tool subfinder && subfinder -d "$DOMAIN" -all -silent ${RESOLVERS:+-rL $RESOLVERS} > "$RAW_DIR/subfinder.txt"
+check_tool assetfinder && assetfinder --subs-only "$DOMAIN" > "$RAW_DIR/assetfinder.txt"
+if command -v curl &>/dev/null && command -v jq &>/dev/null; then
+    info "Querying crt.sh..."
+    curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" \
+        | jq -r '.[].name_value' \
+        | sed 's/\*\.\?//g' \
+        | grep -i "\.$DOMAIN" \
+        | sort -u > "$RAW_DIR/crtsh.txt"
+fi
+check_tool amass && amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt"
 
-cat "$RAW_DIR"/*.txt 2>/dev/null | grep -iE "^[a-z0-9.-]+\\.$DOMAIN$" | sort -u > "$ENUM_DIR/all_subdomains.txt"
+# Combine all subdomains (no strict filtering)
+cat "$RAW_DIR"/*.txt 2>/dev/null | grep -i "\.$DOMAIN" | sort -u > "$ENUM_DIR/all_subdomains.txt"
 SUBDOMAIN_COUNT=$(wc -l < "$ENUM_DIR/all_subdomains.txt")
 success "Found $SUBDOMAIN_COUNT unique subdomains"
 
 # 2. DNS Resolution
 info "[2/7] DNS resolution"
 if check_tool dnsx; then
-    dnsx -l "$ENUM_DIR/all_subdomains.txt" -silent -t "$THREADS" > "$ENUM_DIR/resolved.txt" 
+    dnsx -l "$ENUM_DIR/all_subdomains.txt" -silent -t "$THREADS" > "$ENUM_DIR/resolved.txt"
 else
     while read -r s; do host "$s" &>/dev/null && echo "$s"; done < "$ENUM_DIR/all_subdomains.txt" > "$ENUM_DIR/resolved.txt"
 fi
 RESOLVED_COUNT=$(wc -l < "$ENUM_DIR/resolved.txt")
 success "Resolved $RESOLVED_COUNT subdomains"
-NEXT_TARGET_FILE="$ENUM_DIR/resolved.txt"
+
+# Fallback: If resolved.txt is empty, use all_subdomains.txt for next steps
+if [[ "$RESOLVED_COUNT" -eq 0 ]]; then
+    warn "No subdomains resolved. Will try HTTP probing on all enumerated subdomains."
+    NEXT_TARGET_FILE="$ENUM_DIR/all_subdomains.txt"
+else
+    NEXT_TARGET_FILE="$ENUM_DIR/resolved.txt"
+fi
 
 # 3. HTTP Probing
 if [[ "$DO_PROBE" == true ]]; then
     info "[3/7] HTTP probing"
     if check_tool httpx; then
-        httpx -l "$NEXT_TARGET_FILE" -silent -status-code -title -tech-detect -content-length -t "$THREADS" > "$WEB_DIR/httpx_results.txt" 
+        httpx -l "$NEXT_TARGET_FILE" -silent -status-code -title -tech-detect -content-length -t "$THREADS" > "$WEB_DIR/httpx_results.txt"
         awk '{print $1}' "$WEB_DIR/httpx_results.txt" | sort -u > "$WEB_DIR/alive_hosts.txt"
         ALIVE_COUNT=$(wc -l < "$WEB_DIR/alive_hosts.txt")
         success "Found $ALIVE_COUNT alive hosts"
@@ -162,10 +177,10 @@ fi
 # 4. URL Collection
 if [[ "$DO_URLS" == true ]]; then
     info "[4/7] URL collection"
-    if [[ -s "$WEB_DIR/alive_hosts.txt" || -s "$ENUM_DIR/resolved.txt" ]]; then
-        check_tool waybackurls && cat "$NEXT_TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt" 
-        check_tool gau && gau "$DOMAIN" > "$URLS_DIR/gau.txt" 
-        check_tool waymore && waymore -i "$NEXT_TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt" 
+    if [[ -s "$WEB_DIR/alive_hosts.txt" || -s "$NEXT_TARGET_FILE" ]]; then
+        check_tool waybackurls && cat "$NEXT_TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt"
+        check_tool gau && gau "$DOMAIN" > "$URLS_DIR/gau.txt"
+        check_tool waymore && waymore -i "$NEXT_TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt"
         cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt"
         URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
         success "Collected $URL_COUNT unique URLs"
@@ -184,7 +199,7 @@ if [[ "$DO_FUZZ" == true ]]; then
             [[ -z "$host" ]] && continue
             clean_host=$(echo "$host" | sed 's|https\?://||;s|/.*||')
             target_url=$([[ "$host" =~ ^https?:// ]] && echo "$host" || echo "https://$host")
-            dirsearch -u "$target_url" --format=simple --output="$FUZZ_DIR/${clean_host}.txt" --include-status=200-299,301 --threads=20 --timeout=10 --random-agent --quiet 
+            dirsearch -u "$target_url" --format=simple --output="$FUZZ_DIR/${clean_host}.txt" --include-status=200-299,301 --threads=20 --timeout=10 --random-agent --quiet
             [[ ! -s "$FUZZ_DIR/${clean_host}.txt" && ! "$host" =~ ^http:// ]] && dirsearch -u "http://$host" --format=simple --output="$FUZZ_DIR/${clean_host}_http.txt" --include-status=200-299,301 --threads=20 --timeout=10 --random-agent --quiet
         done < "$NEXT_TARGET_FILE"
         FUZZ_COUNT=$(grep -Eh " 2[0-9]{2}| 301" "$FUZZ_DIR"/*.txt 2>/dev/null | wc -l || echo 0)
@@ -202,7 +217,7 @@ fi
 if [[ "$DO_PORTS" == true ]]; then
     info "[6/7] Port scanning"
     if check_tool naabu; then
-        naabu -l "$NEXT_TARGET_FILE" -silent -top-ports 1000 -rate 1000 -t "$THREADS" > "$PORTS_DIR/open_ports.txt" 
+        naabu -l "$NEXT_TARGET_FILE" -silent -top-ports 1000 -rate 1000 -t "$THREADS" > "$PORTS_DIR/open_ports.txt"
         PORT_COUNT=$(wc -l < "$PORTS_DIR/open_ports.txt" 2>/dev/null || echo 0)
         success "Found $PORT_COUNT open ports"
     else
@@ -220,7 +235,7 @@ if [[ "$DO_NUCLEI" == true ]]; then
     if check_tool nuclei; then
         TARGET_FILE="$WEB_DIR/alive_hosts.txt"
         [[ ! -s "$TARGET_FILE" ]] && TARGET_FILE="$NEXT_TARGET_FILE"
-        nuclei -l "$TARGET_FILE" -severity low,medium,high,critical -silent -t "$THREADS" > "$NUCLEI_DIR/vulnerabilities.txt" 
+        nuclei -l "$TARGET_FILE" -severity low,medium,high,critical -silent -t "$THREADS" > "$NUCLEI_DIR/vulnerabilities.txt"
         VULN_COUNT=$(wc -l < "$NUCLEI_DIR/vulnerabilities.txt" 2>/dev/null || echo 0)
         success "Found $VULN_COUNT potential vulnerabilities"
     else

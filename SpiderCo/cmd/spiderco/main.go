@@ -11,26 +11,23 @@ const embeddedScript = `#!/bin/bash
 
 # SpiderCo - Advanced Reconnaissance Tool
 # Author: Mohamed-Yasser-Ali
-# Version: 2.1.0
+# Version: 2.2.1
 
 set -euo pipefail
 
-VERSION="2.1.0"
+VERSION="2.2.1"
 
-# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Logging functions
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; }
 success() { echo -e "${GREEN}[DONE]${NC} $1"; }
 
-# Help function
 show_help() {
     cat << EOF
 SpiderCo v$VERSION - Advanced Reconnaissance Tool
@@ -48,19 +45,13 @@ Options:
   --ports                  Enable port scanning
   --nuclei                 Enable nuclei scanning
   --fuzz                   Enable directory fuzzing with dirsearch
-  --no-probe              Skip HTTP probing
-  --no-urls               Skip URL collection
-  --help                  Show this help
-  --version               Show version
-
-Examples:
-  $0 -d example.com
-  $0 -d example.com --full --threads 100
-  $0 -d example.com --fuzz --resolvers custom_resolvers.txt
+  --no-probe               Skip HTTP probing
+  --no-urls                Skip URL collection
+  --help                   Show this help
+  --version                Show version
 EOF
 }
 
-# Tool installation instructions
 declare -A TOOLS
 TOOLS[subfinder]="go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
 TOOLS[assetfinder]="go install github.com/tomnomnom/assetfinder@latest"
@@ -74,7 +65,6 @@ TOOLS[gau]="go install github.com/lc/gau/v2/cmd/gau@latest"
 TOOLS[waymore]="pip install waymore"
 TOOLS[dirsearch]="pip install dirsearch"
 
-# Check if tool exists
 check_tool() {
     local tool=$1
     if ! command -v "$tool" &> /dev/null; then
@@ -84,7 +74,6 @@ check_tool() {
     return 0
 }
 
-# Default values
 DOMAIN=""
 OUTPUT_DIR=""
 THREADS=50
@@ -96,81 +85,31 @@ DO_FUZZ=false
 DO_PROBE=true
 DO_URLS=true
 
-# Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -d|--domain)
-            DOMAIN="$2"
-            shift 2
-            ;;
-        -o|--output)
-            OUTPUT_DIR="$2"
-            shift 2
-            ;;
-        -t|--threads)
-            THREADS="$2"
-            shift 2
-            ;;
-        --resolvers)
-            RESOLVERS="$2"
-            shift 2
-            ;;
-        --full)
-            DO_FULL=true
-            DO_PORTS=true
-            DO_NUCLEI=true
-            DO_FUZZ=true
-            shift
-            ;;
-        --ports)
-            DO_PORTS=true
-            shift
-            ;;
-        --nuclei)
-            DO_NUCLEI=true
-            shift
-            ;;
-        --fuzz)
-            DO_FUZZ=true
-            shift
-            ;;
-        --no-probe)
-            DO_PROBE=false
-            shift
-            ;;
-        --no-urls)
-            DO_URLS=false
-            shift
-            ;;
-        --help)
-            show_help
-            exit 0
-            ;;
-        --version)
-            echo "$VERSION"
-            exit 0
-            ;;
-        *)
-            error "Unknown option: $1"
-            show_help
-            exit 1
-            ;;
+        -d|--domain) DOMAIN="$2"; shift 2;;
+        -o|--output) OUTPUT_DIR="$2"; shift 2;;
+        -t|--threads) THREADS="$2"; shift 2;;
+        --resolvers) RESOLVERS="$2"; shift 2;;
+        --full) DO_FULL=true; DO_PORTS=true; DO_NUCLEI=true; DO_FUZZ=true; shift;;
+        --ports) DO_PORTS=true; shift;;
+        --nuclei) DO_NUCLEI=true; shift;;
+        --fuzz) DO_FUZZ=true; shift;;
+        --no-probe) DO_PROBE=false; shift;;
+        --no-urls) DO_URLS=false; shift;;
+        --help) show_help; exit 0;;
+        --version) echo "$VERSION"; exit 0;;
+        *) error "Unknown option: $1"; show_help; exit 1;;
     esac
 done
 
-# Validate required arguments
 if [[ -z "$DOMAIN" ]]; then
     error "Domain is required. Use -d <domain>"
     show_help
     exit 1
 fi
 
-# Set output directory
-if [[ -z "$OUTPUT_DIR" ]]; then
-    OUTPUT_DIR="$DOMAIN"
-fi
-
-# Create directories
+OUTPUT_DIR="${OUTPUT_DIR:-$DOMAIN}"
 ENUM_DIR="$OUTPUT_DIR/enum"
 RAW_DIR="$ENUM_DIR/raw"
 WEB_DIR="$OUTPUT_DIR/web"
@@ -178,220 +117,88 @@ URLS_DIR="$OUTPUT_DIR/urls"
 FUZZ_DIR="$OUTPUT_DIR/fuzzing"
 PORTS_DIR="$OUTPUT_DIR/ports"
 NUCLEI_DIR="$OUTPUT_DIR/nuclei"
-
 mkdir -p "$RAW_DIR" "$WEB_DIR" "$URLS_DIR" "$FUZZ_DIR" "$PORTS_DIR" "$NUCLEI_DIR"
 
 info "Target: $DOMAIN"
 info "Output: $OUTPUT_DIR"
 info "Threads: $THREADS"
+[[ -n "$RESOLVERS" && -f "$RESOLVERS" ]] && info "Using resolvers: $RESOLVERS"
 
-if [[ -n "$RESOLVERS" && -f "$RESOLVERS" ]]; then
-    info "Using resolvers: $RESOLVERS"
-fi
-
-# 1. Subdomain Enumeration
 info "[1/7] Subdomain enumeration"
-
-# Subfinder
-if check_tool subfinder; then
-    info "Running subfinder..."
-    subfinder_cmd="subfinder -d $DOMAIN -all -silent"
-    if [[ -n "$RESOLVERS" && -f "$RESOLVERS" ]]; then
-        subfinder_cmd="$subfinder_cmd -rL $RESOLVERS"
-    fi
-    $subfinder_cmd > "$RAW_DIR/subfinder.txt" 2>/dev/null || true
-fi
-
-# Assetfinder
-if check_tool assetfinder; then
-    info "Running assetfinder..."
-    assetfinder --subs-only "$DOMAIN" > "$RAW_DIR/assetfinder.txt" 2>/dev/null || true
-fi
-
-# crt.sh
-if command -v curl &> /dev/null && command -v jq &> /dev/null; then
+check_tool subfinder && subfinder -d "$DOMAIN" -all -silent ${RESOLVERS:+-rL $RESOLVERS} > "$RAW_DIR/subfinder.txt"
+check_tool assetfinder && assetfinder --subs-only "$DOMAIN" > "$RAW_DIR/assetfinder.txt"
+if command -v curl &>/dev/null && command -v jq &>/dev/null; then
     info "Querying crt.sh..."
-    curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" 2>/dev/null \
-        | jq -r '.[].name_value' 2>/dev/null \
-        | sed 's/\*\.//g' \
-        | grep -E "\.$DOMAIN$" \
-        | sort -u > "$RAW_DIR/crtsh.txt" || true
+    curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" \
+        | jq -r '.[].name_value' \
+        | sed 's/\*\.\?//g' \
+        | grep -i "\.$DOMAIN" \
+        | sort -u > "$RAW_DIR/crtsh.txt"
 fi
+check_tool amass && amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt"
 
-# Amass
-if check_tool amass; then
-    info "Running amass..."
-    amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt" 2>/dev/null || true
-fi
-
-# Combine and clean results
-info "Combining subdomain results..."
-cat "$RAW_DIR"/*.txt 2>/dev/null \
-    | grep -iE "^[a-z0-9._-]+\.$DOMAIN$" \
-    | grep -vE ' |note:|->|^[0-9.]+$|^[0-9a-f:]+$' \
-    | sort -u > "$ENUM_DIR/all_subdomains.txt"
-
+cat "$RAW_DIR"/*.txt 2>/dev/null | grep -i "\.$DOMAIN" | sort -u > "$ENUM_DIR/all_subdomains.txt"
 SUBDOMAIN_COUNT=$(wc -l < "$ENUM_DIR/all_subdomains.txt")
 success "Found $SUBDOMAIN_COUNT unique subdomains"
 
-# 2. DNS Resolution
 info "[2/7] DNS resolution"
-
 if check_tool dnsx; then
-    info "Resolving subdomains with dnsx..."
-    dnsx -l "$ENUM_DIR/all_subdomains.txt" -silent > "$ENUM_DIR/resolved.txt" 2>/dev/null || true
+    dnsx -l "$ENUM_DIR/all_subdomains.txt" -silent -t "$THREADS" > "$ENUM_DIR/resolved.txt"
 else
-    warn "dnsx not found, using basic resolution"
-    while read -r subdomain; do
-        if host "$subdomain" &>/dev/null; then
-            echo "$subdomain"
-        fi
-    done < "$ENUM_DIR/all_subdomains.txt" > "$ENUM_DIR/resolved.txt"
+    while read -r s; do host "$s" &>/dev/null && echo "$s"; done < "$ENUM_DIR/all_subdomains.txt" > "$ENUM_DIR/resolved.txt"
 fi
-
 RESOLVED_COUNT=$(wc -l < "$ENUM_DIR/resolved.txt")
 success "Resolved $RESOLVED_COUNT subdomains"
 
-# 3. HTTP Probing
+if [[ "$RESOLVED_COUNT" -eq 0 ]]; then
+    warn "No subdomains resolved. Will try HTTP probing on all enumerated subdomains."
+    NEXT_TARGET_FILE="$ENUM_DIR/all_subdomains.txt"
+else
+    NEXT_TARGET_FILE="$ENUM_DIR/resolved.txt"
+fi
+
 if [[ "$DO_PROBE" == true ]]; then
     info "[3/7] HTTP probing"
-    
     if check_tool httpx; then
-        info "Probing with httpx..."
-        httpx -l "$ENUM_DIR/resolved.txt" \
-              -silent \
-              -status-code \
-              -title \
-              -tech-detect \
-              -content-length \
-              > "$WEB_DIR/httpx_results.txt" 2>/dev/null || true
-        
-        # Extract alive hosts
-        awk '{print $1}' "$WEB_DIR/httpx_results.txt" \
-            | sort -u > "$WEB_DIR/alive_hosts.txt"
-        
+        httpx -l "$NEXT_TARGET_FILE" -silent -status-code -title -tech-detect -content-length -t "$THREADS" > "$WEB_DIR/httpx_results.txt"
+        awk '{print $1}' "$WEB_DIR/httpx_results.txt" | sort -u > "$WEB_DIR/alive_hosts.txt"
         ALIVE_COUNT=$(wc -l < "$WEB_DIR/alive_hosts.txt")
         success "Found $ALIVE_COUNT alive hosts"
-    else
-        warn "httpx not found, skipping HTTP probing"
     fi
 else
     info "[3/7] Skipping HTTP probing"
 fi
 
-# 4. URL Collection
 if [[ "$DO_URLS" == true ]]; then
     info "[4/7] URL collection"
-    
-    TARGET_FILE="$WEB_DIR/alive_hosts.txt"
-    if [[ ! -s "$TARGET_FILE" ]]; then
-        TARGET_FILE="$ENUM_DIR/resolved.txt"
+    if [[ -s "$WEB_DIR/alive_hosts.txt" || -s "$NEXT_TARGET_FILE" ]]; then
+        check_tool waybackurls && cat "$NEXT_TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt"
+        check_tool gau && gau "$DOMAIN" > "$URLS_DIR/gau.txt"
+        check_tool waymore && waymore -i "$NEXT_TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt"
+        cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt"
+        URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
+        success "Collected $URL_COUNT unique URLs"
+    else
+        warn "No hosts found for URL collection"
     fi
-    
-    # Waybackurls
-    if check_tool waybackurls; then
-        info "Collecting URLs with waybackurls..."
-        cat "$TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt" 2>/dev/null || true
-    fi
-    
-    # GAU
-    if check_tool gau; then
-        info "Collecting URLs with gau..."
-        gau "$DOMAIN" > "$URLS_DIR/gau.txt" 2>/dev/null || true
-    fi
-    
-    # Waymore
-    if check_tool waymore; then
-        info "Collecting URLs with waymore..."
-        waymore -i "$TARGET_FILE" -mode U -oU "$URLS_DIR/waymore.txt" 2>/dev/null || true
-    fi
-    
-    # Combine URLs
-    cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt" || true
-    URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
-    success "Collected $URL_COUNT unique URLs"
 else
     info "[4/7] Skipping URL collection"
 fi
 
-# 5. Directory Fuzzing
 if [[ "$DO_FUZZ" == true ]]; then
     info "[5/7] Directory fuzzing"
-    
-    if check_tool dirsearch; then
-        # Use alive hosts if available, otherwise use resolved subdomains
-        FUZZ_TARGET_FILE="$WEB_DIR/alive_hosts.txt"
-        if [[ ! -s "$FUZZ_TARGET_FILE" ]]; then
-            FUZZ_TARGET_FILE="$ENUM_DIR/resolved.txt"
-        fi
-        
-        if [[ -s "$FUZZ_TARGET_FILE" ]]; then
-            info "Fuzzing directories on discovered hosts..."
-            
-            # Add http/https prefixes if not present and fuzz each host
-            while read -r host; do
-                if [[ -n "$host" ]]; then
-                    # Clean hostname for filename
-                    clean_host=$(echo "$host" | sed 's|https\?://||' | sed 's|/.*||')
-                    
-                    # Determine URL format
-                    if [[ "$host" =~ ^https?:// ]]; then
-                        target_url="$host"
-                    else
-                        # Try HTTPS first, fallback to HTTP
-                        target_url="https://$host"
-                    fi
-                    
-                    info "Fuzzing $clean_host..."
-                    
-                    # Run dirsearch with specific status codes
-                    dirsearch -u "$target_url" \
-                             --format=simple \
-                             --output="$FUZZ_DIR/${clean_host}.txt" \
-                             --include-status=200,301 \
-                             --threads=20 \
-                             --timeout=10 \
-                             --random-agent \
-                             --quiet \
-                             2>/dev/null || true
-                             
-                    # If HTTPS failed, try HTTP
-                    if [[ ! -s "$FUZZ_DIR/${clean_host}.txt" && ! "$host" =~ ^http:// ]]; then
-                        info "Retrying $clean_host with HTTP..."
-                        dirsearch -u "http://$host" \
-                                 --format=simple \
-                                 --output="$FUZZ_DIR/${clean_host}_http.txt" \
-                                 --include-status=200,301 \
-                                 --threads=20 \
-                                 --timeout=10 \
-                                 --random-agent \
-                                 --quiet \
-                                 2>/dev/null || true
-                    fi
-                fi
-            done < "$FUZZ_TARGET_FILE"
-            
-            # Filter and combine results
-            info "Processing fuzzing results..."
-            for fuzz_file in "$FUZZ_DIR"/*.txt; do
-                if [[ -f "$fuzz_file" && -s "$fuzz_file" ]]; then
-                    filename=$(basename "$fuzz_file" .txt)
-                    # Filter for interesting status codes and clean output
-                    grep -E "(200|301|302|404)" "$fuzz_file" | \
-                    grep -v "403" | \
-                    sort -u > "$FUZZ_DIR/filtered_${filename}.txt" 2>/dev/null || true
-                fi
-            done
-            
-            # Count total interesting endpoints
-            FUZZ_COUNT=$(find "$FUZZ_DIR" -name "filtered_*.txt" -exec cat {} \; 2>/dev/null | wc -l || echo 0)
-            success "Found $FUZZ_COUNT interesting endpoints across all hosts"
-        else
-            warn "No hosts found for fuzzing"
-            FUZZ_COUNT=0
-        fi
+    if check_tool dirsearch && [[ -s "$NEXT_TARGET_FILE" ]]; then
+        while read -r host; do
+            [[ -z "$host" ]] && continue
+            clean_host=$(echo "$host" | sed 's|https\?://||;s|/.*||')
+            target_url=$([[ "$host" =~ ^https?:// ]] && echo "$host" || echo "https://$host")
+            dirsearch -u "$target_url" --format=simple --output="$FUZZ_DIR/${clean_host}.txt" --include-status=200-299,301 --threads=20 --timeout=10 --random-agent --quiet
+            [[ ! -s "$FUZZ_DIR/${clean_host}.txt" && ! "$host" =~ ^http:// ]] && dirsearch -u "http://$host" --format=simple --output="$FUZZ_DIR/${clean_host}_http.txt" --include-status=200-299,301 --threads=20 --timeout=10 --random-agent --quiet
+        done < "$NEXT_TARGET_FILE"
+        FUZZ_COUNT=$(grep -Eh " 2[0-9]{2}| 301" "$FUZZ_DIR"/*.txt 2>/dev/null | wc -l || echo 0)
+        success "Found $FUZZ_COUNT interesting endpoints"
     else
-        warn "dirsearch not found, skipping directory fuzzing"
+        warn "No hosts found for fuzzing"
         FUZZ_COUNT=0
     fi
 else
@@ -399,22 +206,14 @@ else
     FUZZ_COUNT=0
 fi
 
-# 6. Port Scanning
 if [[ "$DO_PORTS" == true ]]; then
     info "[6/7] Port scanning"
-    
     if check_tool naabu; then
-        info "Scanning ports with naabu..."
-        naabu -l "$ENUM_DIR/resolved.txt" \
-              -silent \
-              -top-ports 1000 \
-              -rate 1000 \
-              > "$PORTS_DIR/open_ports.txt" 2>/dev/null || true
-        
+        naabu -l "$NEXT_TARGET_FILE" -silent -top-ports 1000 -rate 1000 -t "$THREADS" > "$PORTS_DIR/open_ports.txt"
         PORT_COUNT=$(wc -l < "$PORTS_DIR/open_ports.txt" 2>/dev/null || echo 0)
         success "Found $PORT_COUNT open ports"
     else
-        warn "naabu not found, skipping port scanning"
+        warn "naabu not found"
         PORT_COUNT=0
     fi
 else
@@ -422,25 +221,16 @@ else
     PORT_COUNT=0
 fi
 
-# 7. Nuclei Scanning
 if [[ "$DO_NUCLEI" == true ]]; then
     info "[7/7] Nuclei scanning"
-    
     if check_tool nuclei; then
         TARGET_FILE="$WEB_DIR/alive_hosts.txt"
-        if [[ ! -s "$TARGET_FILE" ]]; then
-            TARGET_FILE="$ENUM_DIR/resolved.txt"
-        fi
-        
-        info "Running nuclei scans..."
-        nuclei -l "$TARGET_FILE" \
-               -silent \
-               > "$NUCLEI_DIR/vulnerabilities.txt" 2>/dev/null || true
-        
+        [[ ! -s "$TARGET_FILE" ]] && TARGET_FILE="$NEXT_TARGET_FILE"
+        nuclei -l "$TARGET_FILE" -severity low,medium,high,critical -silent -t "$THREADS" > "$NUCLEI_DIR/vulnerabilities.txt"
         VULN_COUNT=$(wc -l < "$NUCLEI_DIR/vulnerabilities.txt" 2>/dev/null || echo 0)
         success "Found $VULN_COUNT potential vulnerabilities"
     else
-        warn "nuclei not found, skipping vulnerability scanning"
+        warn "nuclei not found"
         VULN_COUNT=0
     fi
 else
@@ -448,32 +238,20 @@ else
     VULN_COUNT=0
 fi
 
-# Summary
 echo
-success "Reconnaissance complete!"
+success "Recon complete!"
 info "Results saved in: $OUTPUT_DIR"
 info "Subdomains: $SUBDOMAIN_COUNT found, $RESOLVED_COUNT resolved"
-if [[ "$DO_PROBE" == true ]]; then
-    info "Alive hosts: $ALIVE_COUNT"
-fi
-if [[ "$DO_URLS" == true ]]; then
-    info "URLs: $URL_COUNT"
-fi
-if [[ "$DO_FUZZ" == true ]]; then
-    info "Fuzzed endpoints: $FUZZ_COUNT"
-fi
-if [[ "$DO_PORTS" == true ]]; then
-    info "Open ports: $PORT_COUNT"
-fi
-if [[ "$DO_NUCLEI" == true ]]; then
-    info "Vulnerabilities: $VULN_COUNT"
-fi
+[[ "$DO_PROBE" == true ]] && info "Alive hosts: ${ALIVE_COUNT:-0}"
+[[ "$DO_URLS" == true ]] && info "URLs: ${URL_COUNT:-0}"
+[[ "$DO_FUZZ" == true ]] && info "Fuzzed endpoints: $FUZZ_COUNT"
+[[ "$DO_PORTS" == true ]] && info "Open ports: $PORT_COUNT"
+[[ "$DO_NUCLEI" == true ]] && info "Vulnerabilities: $VULN_COUNT"
 `
 
 func main() {
     args := os.Args[1:]
 
-    // Handle special flags
     if len(args) == 1 && args[0] == "--dump-script" {
         fmt.Print(embeddedScript)
         return
@@ -489,7 +267,6 @@ func main() {
         return
     }
 
-    // Create temporary script file
     tmpFile, err := ioutil.TempFile("", "spiderco-*.sh")
     if err != nil {
         fmt.Fprintf(os.Stderr, "Error creating temp file: %v\n", err)
@@ -497,7 +274,6 @@ func main() {
     }
     defer os.Remove(tmpFile.Name())
 
-    // Write script content
     _, err = tmpFile.WriteString(embeddedScript)
     if err != nil {
         fmt.Fprintf(os.Stderr, "Error writing script: %v\n", err)
@@ -505,14 +281,12 @@ func main() {
     }
     tmpFile.Close()
 
-    // Make executable
     err = os.Chmod(tmpFile.Name(), 0755)
     if err != nil {
         fmt.Fprintf(os.Stderr, "Error making script executable: %v\n", err)
         os.Exit(1)
     }
 
-    // Execute script
     cmd := exec.Command("bash", append([]string{tmpFile.Name()}, args...)...)
     cmd.Stdout = os.Stdout
     cmd.Stderr = os.Stderr
