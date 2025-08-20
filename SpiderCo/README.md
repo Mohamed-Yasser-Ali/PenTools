@@ -1,7 +1,7 @@
 # SpiderCo - Advanced Reconnaissance Tool
 
 [![Go Install](https://img.shields.io/badge/go-install-blue.svg)](https://github.com/Mohamed-Yasser-Ali/PenTools)
-[![Version](https://img.shields.io/badge/version-2.1.0-green.svg)](https://github.com/Mohamed-Yasser-Ali/PenTools/releases)
+[![Version](https://img.shields.io/badge/version-2.2.2-green.svg)](https://github.com/Mohamed-Yasser-Ali/PenTools/releases)
 
 SpiderCo is a comprehensive reconnaissance tool designed for bug bounty hunters and penetration testers. It automates the process of subdomain enumeration, DNS resolution, HTTP probing, URL collection, directory fuzzing, port scanning, and vulnerability detection.
 
@@ -226,4 +226,4 @@ This tool is for educational and authorized testing purposes only. Users are res
 
 ---
 
-**SpiderCo v2.1.0** - Now with intelligent directory fuzzing and enhanced endpoint discovery
+**SpiderCo v2.2.2** - Now with intelligent directory fuzzing and enhanced endpoint discovery

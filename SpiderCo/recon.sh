@@ -159,7 +159,7 @@ fi
 if [[ "$DO_PROBE" == true ]]; then
     info "[3/7] HTTP probing"
     if check_tool httpx; then
-        httpx -l "$NEXT_TARGET_FILE" -silent -status-code -title -tech-detect -content-length -t "$THREADS" > "$WEB_DIR/httpx_results.txt"
+        httpx -l "$NEXT_TARGET_FILE" -silent -status-code -title -tech-detect -content-length > "$WEB_DIR/httpx_results.txt"
         awk '{print $1}' "$WEB_DIR/httpx_results.txt" | sort -u > "$WEB_DIR/alive_hosts.txt"
         ALIVE_COUNT=$(wc -l < "$WEB_DIR/alive_hosts.txt")
         success "Found $ALIVE_COUNT alive hosts"
