@@ -2,12 +2,11 @@
 
 # SpiderCo - Advanced Reconnaissance Tool
 # Author: Mohamed-Yasser-Ali
-# Version: 2.2.2 (crt.sh subshell fix, robust subdomain combining)
+# Version: 2.2.2 (Final Refined Version)
 
 set -euo pipefail
 
 VERSION="2.2.2"
-NOCOLOR=''
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -51,7 +50,6 @@ declare -A TOOLS
 TOOLS[subfinder]="go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
 TOOLS[assetfinder]="go install github.com/tomnomnom/assetfinder@latest"
 TOOLS[amass]="go install github.com/owasp-amass/amass/v4/...@latest"
-TOOLS[dnsx]="go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
 TOOLS[httpx]="go install github.com/projectdiscovery/httpx/cmd/httpx@latest"
 TOOLS[naabu]="go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest"
 TOOLS[nuclei]="go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
@@ -125,107 +123,115 @@ info "Threads: $THREADS"
 [[ -n "$RESOLVERS" && -f "$RESOLVERS" ]] && info "Using resolvers: $RESOLVERS"
 
 # 1. Subdomains
-info "[1/7] Subdomain enumeration"
-check_tool subfinder && subfinder -d "$DOMAIN" -all -silent > "$RAW_DIR/subfinder.txt"
-check_tool assetfinder && assetfinder --subs-only "$DOMAIN" > "$RAW_DIR/assetfinder.txt"
+info "[1/6] Subdomain enumeration"
+if check_tool subfinder; then
+    subfinder -d "$DOMAIN" -all -silent -o "$RAW_DIR/subfinder.txt"
+fi
+if check_tool assetfinder; then
+    assetfinder --subs-only "$DOMAIN" > "$RAW_DIR/assetfinder.txt"
+fi
 if command -v curl &>/dev/null && command -v jq &>/dev/null; then
     info "Querying crt.sh..."
     curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" | jq -r '.[].name_value' | sed 's/\*\.\?//g' | grep -i "\.$DOMAIN" | sort -u > "$RAW_DIR/crtsh.txt"
 fi
-check_tool amass && amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt"
+if check_tool amass; then
+    amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt"
+fi
 
-# Combine all subdomains (robust, no strict filtering)
-cat "$RAW_DIR"/*.txt | grep -i "\.$DOMAIN" | sort -u > "$ENUM_DIR/all_subdomains.txt"
-SUBDOMAIN_COUNT=$(wc -l < "$ENUM_DIR/all_subdomains.txt")
+# Combine all subdomains
+cat "$RAW_DIR"/*.txt 2>/dev/null | grep -i "\.$DOMAIN" | sort -u > "$ENUM_DIR/all_subdomains.txt"
+SUBDOMAIN_COUNT=$(wc -l < "$ENUM_DIR/all_subdomains.txt" || echo 0)
 success "Found $SUBDOMAIN_COUNT unique subdomains"
 
-
-# Set NEXT_TARGET_FILE to all_subdomains.txt for all subsequent steps
-NEXT_TARGET_FILE="$ENUM_DIR/all_subdomains.txt"
-
-# 3. HTTP Probing
+# 2. HTTP Probing
 if [[ "$DO_PROBE" == true ]]; then
-    info "[3/7] HTTP probing"
+    info "[2/6] Probing hosts"
     if check_tool httpx; then
-        httpx -l "$NEXT_TARGET_FILE" -silent -status-code -title -tech-detect -content-length > "$WEB_DIR/httpx_results.txt"
+        httpx -l "$ENUM_DIR/all_subdomains.txt" -silent -status-code -title -tech-detect -content-length -o "$WEB_DIR/httpx_results.txt"
         awk '{print $1}' "$WEB_DIR/httpx_results.txt" | sort -u > "$WEB_DIR/alive_hosts.txt"
-        ALIVE_COUNT=$(wc -l < "$WEB_DIR/alive_hosts.txt")
+        ALIVE_COUNT=$(wc -l < "$WEB_DIR/alive_hosts.txt" || echo 0)
         success "Found $ALIVE_COUNT alive hosts"
     fi
 else
-    info "[3/7] Skipping HTTP probing"
+    info "[2/6] Skipping HTTP probing"
 fi
 
-# 4. URL Collection
+# 3. URL Collection
 if [[ "$DO_URLS" == true ]]; then
-    info "[4/7] URL collection"
-    if [[ -s "$WEB_DIR/alive_hosts.txt" || -s "$NEXT_TARGET_FILE" ]]; then
-        check_tool waybackurls && cat "$NEXT_TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt"
-        check_tool gau && cat "$NEXT_TARGET_FILE" | gau > "$URLS_DIR/gau.txt"
-        check_tool waymore && waymore -i "$NEXT_TARGET_FILE" -mode U -oU "$URLS_DIR/waymore.txt"
+    info "[3/6] URL collection"
+    URL_TARGETS="$WEB_DIR/alive_hosts.txt"
+    [[ ! -s "$URL_TARGETS" ]] && URL_TARGETS="$ENUM_DIR/all_subdomains.txt"
+
+    if [[ -s "$URL_TARGETS" ]]; then
+        if check_tool waybackurls; then
+            cat "$URL_TARGETS" | waybackurls > "$URLS_DIR/waybackurls.txt"
+        fi
+        if check_tool gau; then
+            cat "$URL_TARGETS" | gau > "$URLS_DIR/gau.txt"
+        fi
+        if check_tool waymore; then
+            waymore -i "$URL_TARGETS" -mode U -oU "$URLS_DIR/waymore.txt"
+        fi
+        
         cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt"
-        URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt")
+        URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" || echo 0)
         success "Collected $URL_COUNT unique URLs"
     else
         warn "No hosts found for URL collection"
     fi
 else
-    info "[4/7] Skipping URL collection"
+    info "[3/6] Skipping URL collection"
 fi
 
-# 5. Directory Fuzzing
+# 4. Directory Fuzzing
 if [[ "$DO_FUZZ" == true ]]; then
-    info "[5/7] Directory fuzzing"
-    if check_tool dirsearch && [[ -s "$NEXT_TARGET_FILE" ]]; then
-        while read -r host; do
-            [[ -z "$host" ]] && continue
-            clean_host=$(echo "$host" | sed 's|https\?://||;s|/.*||')
-            target_url=$([[ "$host" =~ ^https?:// ]] && echo "$host" || echo "https://$host")
-            dirsearch -u "$target_url" --format=simple --output="$FUZZ_DIR/${clean_host}.txt" --include-status=200-299,301 --threads=20 --timeout=10 --random-agent --quiet
-            [[ ! -s "$FUZZ_DIR/${clean_host}.txt" && ! "$host" =~ ^http:// ]] && dirsearch -u "http://$host" --format=simple --output="$FUZZ_DIR/${clean_host}_http.txt" --include-status=200-299,301 --threads=20 --timeout=10 --random-agent --quiet
-        done < "$NEXT_TARGET_FILE"
-        FUZZ_COUNT=$(grep -Eh " 2[0-9]{2}| 301" "$FUZZ_DIR"/*.txt 2>/dev/null | wc -l || echo 0)
+    info "[4/6] Directory fuzzing"
+    FUZZ_TARGETS="$WEB_DIR/alive_hosts.txt"
+    if check_tool dirsearch && [[ -s "$FUZZ_TARGETS" ]]; then
+        info "Running dirsearch on all alive hosts..."
+        dirsearch -L "$FUZZ_TARGETS" --format=simple --output="$FUZZ_DIR/fuzz_results.txt" --include-status=200-299,301 --threads=50 --random-agent --quiet
+        FUZZ_COUNT=$(grep -c -E " 2[0-9]{2}| 301" "$FUZZ_DIR/fuzz_results.txt" 2>/dev/null || echo 0)
         success "Found $FUZZ_COUNT interesting endpoints"
     else
-        warn "No hosts found for fuzzing"
+        warn "dirsearch not found or no alive hosts to fuzz."
         FUZZ_COUNT=0
     fi
 else
-    info "[5/7] Skipping directory fuzzing"
+    info "[4/6] Skipping directory fuzzing"
     FUZZ_COUNT=0
 fi
 
-# 6. Port Scanning
+# 5. Port Scanning
 if [[ "$DO_PORTS" == true ]]; then
-    info "[6/7] Port scanning"
+    info "[5/6] Port scanning"
+    PORT_TARGETS="$ENUM_DIR/all_subdomains.txt"
     if check_tool naabu; then
-        naabu -l "$NEXT_TARGET_FILE" -silent -top-ports 1000 -rate 1000 -t "$THREADS" > "$PORTS_DIR/open_ports.txt"
-        PORT_COUNT=$(wc -l < "$PORTS_DIR/open_ports.txt")
+        naabu -l "$PORT_TARGETS" -silent -top-ports 1000 -rate 1000 -t "$THREADS" -o "$PORTS_DIR/open_ports.txt"
+        PORT_COUNT=$(wc -l < "$PORTS_DIR/open_ports.txt" || echo 0)
         success "Found $PORT_COUNT open ports"
     else
         warn "naabu not found"
         PORT_COUNT=0
     fi
 else
-    info "[6/7] Skipping port scanning"
+    info "[5/6] Skipping port scanning"
     PORT_COUNT=0
 fi
 
-# 7. Nuclei
+# 6. Nuclei
 if [[ "$DO_NUCLEI" == true ]]; then
-    info "[7/7] Nuclei scanning"
-    if check_tool nuclei; then
-        TARGET_FILE="$WEB_DIR/alive_hosts.txt"
-        [[ ! -s "$TARGET_FILE" ]] && TARGET_FILE="$NEXT_TARGET_FILE"
-        nuclei -l "$TARGET_FILE" > "$NUCLEI_DIR/vulnerabilities.txt"
+    info "[6/6] Nuclei scanning"
+    NUCLEI_TARGETS="$WEB_DIR/alive_hosts.txt"
+    if check_tool nuclei && [[ -s "$NUCLEI_TARGETS" ]]; then
+        nuclei -l "$NUCLEI_TARGETS" -o "$NUCLEI_DIR/vulnerabilities.txt"
         VULN_COUNT=$(wc -l < "$NUCLEI_DIR/vulnerabilities.txt" 2>/dev/null || echo 0)
         success "Found $VULN_COUNT potential vulnerabilities"
     else
-        warn "nuclei not found"
+        warn "nuclei not found or no alive hosts to scan."
         VULN_COUNT=0
     fi
 else
-    info "[7/7] Skipping nuclei scanning"
+    info "[6/6] Skipping nuclei scanning"
     VULN_COUNT=0
 fi
 

@@ -11,23 +11,26 @@ const embeddedScript = `#!/bin/bash
 
 # SpiderCo - Advanced Reconnaissance Tool
 # Author: Mohamed-Yasser-Ali
-# Version: 2.2.1
+# Version: 2.2.2 (crt.sh subshell fix, robust subdomain combining)
 
 set -euo pipefail
 
-VERSION="2.2.1"
-
+VERSION="2.2.2"
+NOCOLOR=''
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m'
+NC='\033[0m' # No Color
 
+# Logging
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; }
 success() { echo -e "${GREEN}[DONE]${NC} $1"; }
 
+# Help
 show_help() {
     cat << EOF
 SpiderCo v$VERSION - Advanced Reconnaissance Tool
@@ -52,6 +55,7 @@ Options:
 EOF
 }
 
+# Tool installation instructions
 declare -A TOOLS
 TOOLS[subfinder]="go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
 TOOLS[assetfinder]="go install github.com/tomnomnom/assetfinder@latest"
@@ -65,6 +69,7 @@ TOOLS[gau]="go install github.com/lc/gau/v2/cmd/gau@latest"
 TOOLS[waymore]="pip install waymore"
 TOOLS[dirsearch]="pip install dirsearch"
 
+# Check tool
 check_tool() {
     local tool=$1
     if ! command -v "$tool" &> /dev/null; then
@@ -74,6 +79,7 @@ check_tool() {
     return 0
 }
 
+# Defaults
 DOMAIN=""
 OUTPUT_DIR=""
 THREADS=50
@@ -85,6 +91,7 @@ DO_FUZZ=false
 DO_PROBE=true
 DO_URLS=true
 
+# Parse args
 while [[ $# -gt 0 ]]; do
     case $1 in
         -d|--domain) DOMAIN="$2"; shift 2;;
@@ -103,12 +110,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate
 if [[ -z "$DOMAIN" ]]; then
     error "Domain is required. Use -d <domain>"
     show_help
     exit 1
 fi
 
+# Output dirs
 OUTPUT_DIR="${OUTPUT_DIR:-$DOMAIN}"
 ENUM_DIR="$OUTPUT_DIR/enum"
 RAW_DIR="$ENUM_DIR/raw"
@@ -124,32 +133,30 @@ info "Output: $OUTPUT_DIR"
 info "Threads: $THREADS"
 [[ -n "$RESOLVERS" && -f "$RESOLVERS" ]] && info "Using resolvers: $RESOLVERS"
 
+# 1. Subdomains
 info "[1/7] Subdomain enumeration"
-check_tool subfinder && subfinder -d "$DOMAIN" -all -silent ${RESOLVERS:+-rL $RESOLVERS} > "$RAW_DIR/subfinder.txt"
+check_tool subfinder && subfinder -d "$DOMAIN" -all -silent > "$RAW_DIR/subfinder.txt"
 check_tool assetfinder && assetfinder --subs-only "$DOMAIN" > "$RAW_DIR/assetfinder.txt"
 if command -v curl &>/dev/null && command -v jq &>/dev/null; then
     info "Querying crt.sh..."
-    curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" \
-        | jq -r '.[].name_value' \
-        | sed 's/\*\.\?//g' \
-        | grep -i "\.$DOMAIN" \
-        | sort -u > "$RAW_DIR/crtsh.txt"
+    curl -s "https://crt.sh/?q=%25.$DOMAIN&output=json" | jq -r '.[].name_value' | sed 's/\*\.\?//g' | grep -i "\.$DOMAIN" | sort -u > "$RAW_DIR/crtsh.txt"
 fi
 check_tool amass && amass enum -passive -d "$DOMAIN" -o "$RAW_DIR/amass.txt"
 
-cat "$RAW_DIR"/*.txt 2>/dev/null | grep -i "\.$DOMAIN" | sort -u > "$ENUM_DIR/all_subdomains.txt"
+# Combine all subdomains (robust, no strict filtering)
+cat "$RAW_DIR"/*.txt | grep -i "\.$DOMAIN" | sort -u > "$ENUM_DIR/all_subdomains.txt"
 SUBDOMAIN_COUNT=$(wc -l < "$ENUM_DIR/all_subdomains.txt")
 success "Found $SUBDOMAIN_COUNT unique subdomains"
 
+# 2. DNS Resolution
 info "[2/7] DNS resolution"
 if check_tool dnsx; then
     dnsx -l "$ENUM_DIR/all_subdomains.txt" -silent -t "$THREADS" > "$ENUM_DIR/resolved.txt"
-else
-    while read -r s; do host "$s" &>/dev/null && echo "$s"; done < "$ENUM_DIR/all_subdomains.txt" > "$ENUM_DIR/resolved.txt"
 fi
 RESOLVED_COUNT=$(wc -l < "$ENUM_DIR/resolved.txt")
 success "Resolved $RESOLVED_COUNT subdomains"
 
+# Fallback: If resolved.txt is empty, use all_subdomains.txt for next steps
 if [[ "$RESOLVED_COUNT" -eq 0 ]]; then
     warn "No subdomains resolved. Will try HTTP probing on all enumerated subdomains."
     NEXT_TARGET_FILE="$ENUM_DIR/all_subdomains.txt"
@@ -157,10 +164,11 @@ else
     NEXT_TARGET_FILE="$ENUM_DIR/resolved.txt"
 fi
 
+# 3. HTTP Probing
 if [[ "$DO_PROBE" == true ]]; then
     info "[3/7] HTTP probing"
     if check_tool httpx; then
-        httpx -l "$NEXT_TARGET_FILE" -silent -status-code -title -tech-detect -content-length -t "$THREADS" > "$WEB_DIR/httpx_results.txt"
+        httpx -l "$NEXT_TARGET_FILE" -silent -status-code -title -tech-detect -content-length > "$WEB_DIR/httpx_results.txt"
         awk '{print $1}' "$WEB_DIR/httpx_results.txt" | sort -u > "$WEB_DIR/alive_hosts.txt"
         ALIVE_COUNT=$(wc -l < "$WEB_DIR/alive_hosts.txt")
         success "Found $ALIVE_COUNT alive hosts"
@@ -169,14 +177,15 @@ else
     info "[3/7] Skipping HTTP probing"
 fi
 
+# 4. URL Collection
 if [[ "$DO_URLS" == true ]]; then
     info "[4/7] URL collection"
     if [[ -s "$WEB_DIR/alive_hosts.txt" || -s "$NEXT_TARGET_FILE" ]]; then
         check_tool waybackurls && cat "$NEXT_TARGET_FILE" | waybackurls > "$URLS_DIR/waybackurls.txt"
-        check_tool gau && gau "$DOMAIN" > "$URLS_DIR/gau.txt"
-        check_tool waymore && waymore -i "$NEXT_TARGET_FILE" -mode U -f "$URLS_DIR/waymore.txt"
+        check_tool gau && cat "$NEXT_TARGET_FILE" | gau > "$URLS_DIR/gau.txt"
+        check_tool waymore && waymore -i "$NEXT_TARGET_FILE" -mode U -oU "$URLS_DIR/waymore.txt"
         cat "$URLS_DIR"/*.txt 2>/dev/null | sort -u > "$URLS_DIR/all_urls.txt"
-        URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt" 2>/dev/null || echo 0)
+        URL_COUNT=$(wc -l < "$URLS_DIR/all_urls.txt")
         success "Collected $URL_COUNT unique URLs"
     else
         warn "No hosts found for URL collection"
@@ -185,6 +194,7 @@ else
     info "[4/7] Skipping URL collection"
 fi
 
+# 5. Directory Fuzzing
 if [[ "$DO_FUZZ" == true ]]; then
     info "[5/7] Directory fuzzing"
     if check_tool dirsearch && [[ -s "$NEXT_TARGET_FILE" ]]; then
@@ -206,11 +216,12 @@ else
     FUZZ_COUNT=0
 fi
 
+# 6. Port Scanning
 if [[ "$DO_PORTS" == true ]]; then
     info "[6/7] Port scanning"
     if check_tool naabu; then
         naabu -l "$NEXT_TARGET_FILE" -silent -top-ports 1000 -rate 1000 -t "$THREADS" > "$PORTS_DIR/open_ports.txt"
-        PORT_COUNT=$(wc -l < "$PORTS_DIR/open_ports.txt" 2>/dev/null || echo 0)
+        PORT_COUNT=$(wc -l < "$PORTS_DIR/open_ports.txt")
         success "Found $PORT_COUNT open ports"
     else
         warn "naabu not found"
@@ -221,12 +232,13 @@ else
     PORT_COUNT=0
 fi
 
+# 7. Nuclei
 if [[ "$DO_NUCLEI" == true ]]; then
     info "[7/7] Nuclei scanning"
     if check_tool nuclei; then
         TARGET_FILE="$WEB_DIR/alive_hosts.txt"
         [[ ! -s "$TARGET_FILE" ]] && TARGET_FILE="$NEXT_TARGET_FILE"
-        nuclei -l "$TARGET_FILE" -severity low,medium,high,critical -silent -t "$THREADS" > "$NUCLEI_DIR/vulnerabilities.txt"
+        nuclei -l "$TARGET_FILE" > "$NUCLEI_DIR/vulnerabilities.txt"
         VULN_COUNT=$(wc -l < "$NUCLEI_DIR/vulnerabilities.txt" 2>/dev/null || echo 0)
         success "Found $VULN_COUNT potential vulnerabilities"
     else
@@ -238,6 +250,7 @@ else
     VULN_COUNT=0
 fi
 
+# Summary
 echo
 success "Recon complete!"
 info "Results saved in: $OUTPUT_DIR"
@@ -297,6 +310,3 @@ func main() {
         if exitError, ok := err.(*exec.ExitError); ok {
             os.Exit(exitError.ExitCode())
         }
-        os.Exit(1)
-    }
-}
